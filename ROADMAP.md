@@ -3,26 +3,26 @@
 ## v0.1.0 — MVP
 
 - [x] Repository foundation (docs, CI, governance)
-- [ ] Tauri 2 + React/TS application skeleton
-- [ ] Core domain models (task, schedule, action, target, history, settings)
-- [ ] Structured error model
-- [ ] Schema-versioned JSON persistence (atomic writes, corruption recovery)
-- [ ] Scheduler engine (relative / absolute / recurring, misfire policies, reconciliation)
-- [ ] Win32 window enumeration
-- [ ] Target resolution & matching (exact / contains / regex / any; ambiguity abort)
-- [ ] Safe foreground activation & verification
-- [ ] SendInput backend (Unicode typing, key combos)
-- [ ] Action sequence engine (ordered, focus-loss protection, global serialization)
-- [ ] Dashboard + quick creation mode
-- [ ] Automation editor (schedule + ordered action editing)
-- [ ] Window picker
-- [ ] Execution history UI
-- [ ] Settings (theme, notifications, startup options)
-- [ ] System tray (hide to tray, scheduler keeps running)
-- [ ] Notifications (success / failure)
-- [ ] Windows autostart option
-- [ ] CI (fmt, clippy, tests, frontend lint/build, full Tauri Windows build)
-- [ ] Release pipeline (MSI + NSIS + checksums) and v0.1.0 GitHub Release
+- [x] Tauri 2 + React/TS application skeleton
+- [x] Core domain models (task, schedule, action, target, history, settings)
+- [x] Structured error model
+- [x] Schema-versioned JSON persistence (atomic writes, corruption recovery)
+- [x] Scheduler engine (relative / absolute / recurring, misfire policies, reconciliation)
+- [x] Win32 window enumeration
+- [x] Target resolution & matching (exact / contains / regex / any; ambiguity abort)
+- [x] Safe foreground activation & verification
+- [x] SendInput backend (Unicode typing, key combos)
+- [x] Action sequence engine (ordered, focus-loss protection, global serialization)
+- [x] Dashboard + quick creation mode
+- [x] Automation editor (schedule + ordered action editing)
+- [x] Window picker
+- [x] Execution history UI
+- [x] Settings (theme, notifications, startup options)
+- [x] System tray (hide to tray, scheduler keeps running)
+- [x] Notifications (success / failure)
+- [x] Windows autostart option
+- [x] CI (fmt, clippy, tests, frontend lint/build, full Tauri Windows build)
+- [x] Release pipeline (MSI + NSIS + checksums) and v0.1.0 GitHub Release
 
 ## v0.2.0 — Reliability
 

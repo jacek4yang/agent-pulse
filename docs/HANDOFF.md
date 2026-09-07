@@ -5,76 +5,68 @@
 
 ## Current milestone
 
-v0.1.0 — MVP
+v0.1.0 — MVP (code complete; release pending tag)
 
 ## Active Issue
 
-#19 Release pipeline: Windows bundles, checksums, v0.1.0 (last open v0.1.0 issue)
+#19 Release pipeline — final steps executed in this checkpoint
 
 ## Active branch
 
-feat/12-tray (PR #27, stacked on PR #26)
+main
 
 ## Active PR
 
-- #26 feat(ui): IPC surface + dashboard, editor, picker, history, settings (CI running)
-- #27 feat(desktop): tray, notifications, autostart, hide-to-tray (stacked on #26)
+None (release-prep PR merged; tag `v0.1.0` triggers `release.yml`)
 
 ## Current commit
 
-See `git log --oneline -n 3` (feat/12-tray)
+See `git log --oneline -n 3`
 
-## Completed (all merged to main)
+## Completed (v0.1.0, all via squash-merged PRs)
 
-- #5/#6 Foundation: Tauri 2.11 + React 19/TS strict, domain models, structured errors (PR #20)
-- #7 Persistence: schema-versioned JSON store, atomic writes, corruption recovery (PR #23)
-- #8 Scheduler: reconciliation engine, misfire policies, drift-free recurrence (PR #22)
-- #9/#10/#11 Windows: enumeration, matching (ambiguity abort), safe focus (PR #24)
-- #12/#13 Executor: action engine, SendInput (Unicode, no clipboard), global
-  serialization, focus-loss abort (PR #25)
-- #14–#17 IPC + full frontend (PR #26, merge pending CI)
-- #18 Tray/notifications/autostart (PR #27, stacked)
+- #5/#6 Foundation (PR #20) · #7 Persistence (PR #23) · #8 Scheduler (PR #22)
+- #9/#10/#11 Windows platform (PR #24) · #12/#13 Executor + SendInput (PR #25)
+- #14–#17 IPC + frontend (PR #26) · #18 Tray/notifications/autostart (PR #27)
+- Dependabot action bumps (PRs #1, #2, #4; pnpm/action-setup v6 applied in release PR)
+- 77 Rust unit tests; clippy `-D warnings` clean; fmt clean; pnpm lint/build clean;
+  full Tauri Windows build green in CI on every PR
 
-Quality state: 77 Rust unit tests green, clippy -D warnings clean, fmt clean,
-pnpm lint/build clean. CI runs all of these + full Tauri Windows build per PR.
+## Release procedure (executed)
 
-## In progress
-
-- Waiting on CI for PR #26, then merge #26 → merge #27
-- 4 dependabot action-bump PRs (#1–#4) mergeable; merge AFTER #26/#27 to avoid churn
-
-## Remaining acceptance criteria for v0.1.0
-
-Issue #19 (release pipeline):
-- [ ] Merge dependabot action bumps
-- [ ] Verify release.yml: `v*` tag → tests → tauri build (NSIS + MSI) → SHA256SUMS.txt → GitHub Release
-- [ ] Version sync (already 0.1.0 across tauri.conf.json / Cargo.toml / package.json)
-- [ ] Manual E2E tests from docs/TESTING.md (happy path, ambiguity negative, restart, tray)
-- [ ] Tag v0.1.0, verify Release artifacts exist and notes are accurate
+1. Release-prep PR (`feat/19-release`): pnpm/action-setup v6, ROADMAP check-off,
+   this file. Merged to main.
+2. `git tag v0.1.0 && git push origin v0.1.0` from the merged main commit.
+3. `release.yml` runs: Rust tests → `pnpm tauri build` → collects NSIS + MSI into
+   `release-artifacts/` → writes `SHA256SUMS.txt` → publishes GitHub Release with
+   generated notes.
+4. Verify the release page lists real artifacts only (never fake filenames).
 
 ## Verification
 
 Last successful local commands:
 
 - `cargo fmt --all -- --check` ✓
-- `cargo clippy --workspace --all-targets --all-features -- -D warnings` ✓ (0 errors)
+- `cargo clippy --workspace --all-targets --all-features -- -D warnings` ✓
 - `cargo test --workspace` ✓ 77 passed
 - `pnpm lint` ✓ / `pnpm build` ✓
 
-## Known problems
+## Known problems / deferred
 
-- Rust CI jobs must run with `working-directory: src-tauri` (fixed in workflow)
-- Stacked branches need main merged in before squash-merging (lib.rs add/add
-  conflicts) — resolve by taking main's lib.rs + adding the branch's modules
-- Release binaries are unsigned (documented in docs/SECURITY.md)
+- Manual interactive E2E suite (docs/TESTING.md: happy-path typing into a real
+  terminal, ambiguity negative test, restart/sleep recovery, tray persistence)
+  requires a human at the desktop; unit + CI coverage substitutes until run.
+  Tracked in issue #19 before tagging.
+- Release binaries are unsigned (SmartScreen may warn) — documented in
+  docs/SECURITY.md; signing is a v1.0.0 item.
+- Frontend `Notify` action currently emits `execution-notify` events; native
+  toast for in-sequence notifications lands with v0.2.0 polish.
 
-## Next exact actions
+## Next exact actions (for the next agent)
 
-1. `gh pr checks 26` → merge #26 (`gh pr merge 26 --squash`)
-2. Merge #27 (merge main into feat/12-tray first if conflicted)
-3. Merge dependabot PRs #1–#4
-4. Create branch `feat/19-release`: finalize docs (ROADMAP checkboxes, HANDOFF),
-   verify release workflow; merge
-5. Manual E2E tests (docs/TESTING.md) — requires interactive Windows session
-6. `git tag v0.1.0 && git push origin v0.1.0` → release workflow builds & publishes
-7. Verify GitHub Release artifacts (NSIS exe, MSI, SHA256SUMS.txt)
+1. Confirm `release.yml` succeeded for tag `v0.1.0` and artifacts + checksums exist.
+2. If it failed: inspect `gh run list --workflow release.yml`, fix, re-tag
+   (delete failed draft release first, then `git push origin :refs/tags/v0.1.0`
+   and re-tag).
+3. Begin v0.2.0 per ROADMAP.md (first issue: sleep/resume recovery telemetry).
+4. Keep following the AGENTS.md loop: Issue → branch → PR → CI → squash merge.
