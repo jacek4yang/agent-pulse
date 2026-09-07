@@ -158,7 +158,7 @@ export function Editor({
             <label className="row" style={{ gap: 8 }}>
               <input type="radio" checked={kind === "at"} onChange={() => setKind("at")} style={{ flex: "none" }} />
               <span style={{ flex: "none", fontSize: 12 }}>At</span>
-              <input className="input" type="datetime-local" value={atValue} onChange={(e) => setAtValue(e.target.value)} disabled={kind !== "at"} />
+              <input className="input" type="datetime-local" step={1} value={atValue} onChange={(e) => setAtValue(e.target.value)} disabled={kind !== "at"} />
             </label>
             <label className="row" style={{ gap: 8 }}>
               <input type="radio" checked={kind === "every"} onChange={() => setKind("every")} style={{ flex: "none" }} />

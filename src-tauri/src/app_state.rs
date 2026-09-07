@@ -89,7 +89,7 @@ impl AppState {
                 let _ = app.emit(events::TASK_STARTED, &task.id);
                 let scheduled_at = task.next_run_at.unwrap_or_else(chrono::Utc::now);
                 let (record, updated_task) = {
-                    let state: tauri::State<AppState> = app.state();
+                    let state: tauri::State<Arc<AppState>> = app.state();
                     let settings = state.doc.lock().expect("doc mutex").settings.clone();
                     let outcome = executor::execute_task(
                         state.automation.as_ref(),
@@ -117,7 +117,7 @@ impl AppState {
                 // Record history (bounded) and persist final task state.
                 let is_success = matches!(record.outcome, ExecutionOutcome::Success);
                 {
-                    let state: tauri::State<AppState> = app.state();
+                    let state: tauri::State<Arc<AppState>> = app.state();
                     let mut doc = state.doc.lock().expect("doc mutex");
                     doc.history.push(record.clone());
                     let limit = doc.settings.history_limit;
@@ -163,7 +163,7 @@ impl AppState {
 
     /// Persist the given authoritative task list (scheduler callback).
     fn persist_tasks(app: &AppHandle, tasks: &[ScheduledTask]) -> AppResult<()> {
-        let state: tauri::State<AppState> = app.state();
+        let state: tauri::State<Arc<AppState>> = app.state();
         let mut doc = state.doc.lock().expect("doc mutex");
         doc.tasks = tasks.to_vec();
         state.store.save(&doc)

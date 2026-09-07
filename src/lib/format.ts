@@ -54,7 +54,7 @@ export function formatSchedule(t: ScheduledTask): string {
     }
     case "at": {
       const p2 = (n: number) => String(n).padStart(2, "0");
-      return `At ${t.schedule.year}-${p2(t.schedule.month)}-${p2(t.schedule.day)} ${p2(t.schedule.hour)}:${p2(t.schedule.minute)}`;
+      return `At ${t.schedule.year}-${p2(t.schedule.month)}-${p2(t.schedule.day)} ${p2(t.schedule.hour)}:${p2(t.schedule.minute)}:${p2(t.schedule.second)}`;
     }
     case "every": {
       const s = t.schedule.interval_seconds;

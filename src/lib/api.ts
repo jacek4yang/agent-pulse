@@ -4,7 +4,6 @@ import type {
   Action,
   HistoryRecord,
   MisfirePolicy,
-  Preset,
   ScheduledTask,
   Settings,
   Schedule,
@@ -45,18 +44,16 @@ export const api = {
   getSettings: () => call<Settings>("get_settings"),
   updateSettings: (settings: Settings) => call<void>("update_settings", { settings }),
   createQuickTask: (input: {
+    name?: string | null;
     target: WindowTarget;
-    preset: Preset;
-    hours: number;
-    minutes: number;
-    confirmDelayMs: number;
+    schedule: Schedule;
+    actions: Action[];
   }) =>
     call<ScheduledTask>("create_quick_task", {
+      name: input.name ?? null,
       target: input.target,
-      preset: input.preset,
-      hours: input.hours,
-      minutes: input.minutes,
-      confirmDelayMs: input.confirmDelayMs,
+      schedule: input.schedule,
+      actions: input.actions,
     }),
 };
 

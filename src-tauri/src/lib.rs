@@ -36,7 +36,7 @@ pub fn run() {
             let automation: Arc<dyn PlatformAutomation> = Arc::new(UnsupportedAutomation);
 
             let state = AppState::new(store, automation, handle)?;
-            app.manage(state.clone());
+            app.manage(std::sync::Arc::clone(&state));
             state.scheduler.clone().start();
             state.sync_scheduler();
             Ok(())

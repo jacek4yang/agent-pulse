@@ -1,12 +1,13 @@
 //! Typed Tauri command surface (spec §43). Rust is the source of truth.
 
+use std::sync::Arc;
+
 use tauri::{AppHandle, Emitter, State};
 use uuid::Uuid;
 
 use crate::app_state::{AppState, events};
 use crate::error::{AppError, AppResult};
 use crate::executor::run_task_once;
-use crate::model::presets::Preset;
 use crate::model::{
     Action, ExecutionOutcome, HistoryRecord, ScheduledTask, Settings, TitleMatchMode,
     WindowCandidate, WindowTarget,
@@ -15,14 +16,14 @@ use crate::platform::matching::resolve_target;
 use crate::store::bound_history;
 
 #[tauri::command]
-pub fn list_tasks(state: State<AppState>) -> Vec<ScheduledTask> {
+pub fn list_tasks(state: State<Arc<AppState>>) -> Vec<ScheduledTask> {
     state.doc.lock().expect("doc mutex").tasks.clone()
 }
 
 #[tauri::command]
 pub fn create_task(
     app: AppHandle,
-    state: State<AppState>,
+    state: State<Arc<AppState>>,
     name: String,
     target: WindowTarget,
     schedule: crate::model::Schedule,
@@ -56,7 +57,7 @@ pub fn create_task(
 #[tauri::command]
 pub fn update_task(
     app: AppHandle,
-    state: State<AppState>,
+    state: State<Arc<AppState>>,
     task: ScheduledTask,
 ) -> AppResult<ScheduledTask> {
     let now = chrono::Utc::now();
@@ -82,7 +83,7 @@ pub fn update_task(
 }
 
 #[tauri::command]
-pub fn delete_task(app: AppHandle, state: State<AppState>, task_id: Uuid) -> AppResult<()> {
+pub fn delete_task(app: AppHandle, state: State<Arc<AppState>>, task_id: Uuid) -> AppResult<()> {
     {
         let mut doc = state.doc.lock().expect("doc mutex");
         let before = doc.tasks.len();
@@ -100,7 +101,7 @@ pub fn delete_task(app: AppHandle, state: State<AppState>, task_id: Uuid) -> App
 #[tauri::command]
 pub fn set_task_enabled(
     app: AppHandle,
-    state: State<AppState>,
+    state: State<Arc<AppState>>,
     task_id: Uuid,
     enabled: bool,
 ) -> AppResult<ScheduledTask> {
@@ -138,7 +139,7 @@ pub fn set_task_enabled(
 #[tauri::command]
 pub fn run_task_now(
     app: AppHandle,
-    state: State<AppState>,
+    state: State<Arc<AppState>>,
     task_id: Uuid,
 ) -> AppResult<HistoryRecord> {
     let settings = state.doc.lock().expect("doc mutex").settings.clone();
@@ -192,7 +193,7 @@ pub fn list_windows() -> Vec<WindowCandidate> {
 /// as structured errors.
 #[tauri::command]
 pub fn test_window_target(
-    state: State<AppState>,
+    state: State<Arc<AppState>>,
     target: WindowTarget,
 ) -> AppResult<WindowCandidate> {
     let _ = state; // reserved for future logging hooks
@@ -201,13 +202,13 @@ pub fn test_window_target(
 }
 
 #[tauri::command]
-pub fn get_history(state: State<AppState>) -> Vec<HistoryRecord> {
+pub fn get_history(state: State<Arc<AppState>>) -> Vec<HistoryRecord> {
     let doc = state.doc.lock().expect("doc mutex");
     doc.history.iter().rev().cloned().collect()
 }
 
 #[tauri::command]
-pub fn clear_history(state: State<AppState>) -> AppResult<()> {
+pub fn clear_history(state: State<Arc<AppState>>) -> AppResult<()> {
     state.store.update(|doc| {
         doc.history.clear();
         Ok(())
@@ -215,14 +216,14 @@ pub fn clear_history(state: State<AppState>) -> AppResult<()> {
 }
 
 #[tauri::command]
-pub fn get_settings(state: State<AppState>) -> Settings {
+pub fn get_settings(state: State<Arc<AppState>>) -> Settings {
     state.doc.lock().expect("doc mutex").settings.clone()
 }
 
 #[tauri::command]
 pub fn update_settings(
     app: AppHandle,
-    state: State<AppState>,
+    state: State<Arc<AppState>>,
     settings: Settings,
 ) -> AppResult<()> {
     state.store.update(|doc| {
@@ -250,40 +251,59 @@ fn apply_autostart(app: &AppHandle, enabled: bool) -> AppResult<()> {
     Ok(())
 }
 
-/// Build a quick task from the fast-creation flow (spec §33).
+/// Build a quick task from the fast-creation flow (spec §33). Fully
+/// flexible: any schedule (After / At / Every, second precision) and any
+/// ordered action list (a preset expansion or a fully custom flow). The
+/// name is auto-derived from the schedule when omitted.
 #[tauri::command]
 pub fn create_quick_task(
     app: AppHandle,
-    state: State<AppState>,
+    state: State<Arc<AppState>>,
+    name: Option<String>,
     target: WindowTarget,
-    preset: Preset,
-    hours: u32,
-    minutes: u32,
-    confirm_delay_ms: u64,
+    schedule: crate::model::Schedule,
+    actions: Vec<Action>,
 ) -> AppResult<ScheduledTask> {
-    if hours == 0 && minutes == 0 {
-        return Err(AppError::InvalidSchedule(
-            "delay must be greater than zero".into(),
-        ));
-    }
+    let name = name
+        .filter(|n| !n.trim().is_empty())
+        .unwrap_or_else(|| describe_schedule(&schedule));
     create_task(
         app,
         state,
-        format!(
-            "{} — after {}h {:02}m",
-            preset.display_name(),
-            hours,
-            minutes
-        ),
+        name,
         target,
+        schedule,
+        actions,
+        crate::model::MisfirePolicy::default(),
+    )
+}
+
+/// Human-readable schedule summary used as the default task name.
+fn describe_schedule(schedule: &crate::model::Schedule) -> String {
+    match schedule {
         crate::model::Schedule::After {
             hours,
             minutes,
-            seconds: 0,
-        },
-        preset.actions(confirm_delay_ms),
-        crate::model::MisfirePolicy::default(),
-    )
+            seconds,
+        } => {
+            format!("Automation — after {hours}h {minutes:02}m {seconds:02}s")
+        }
+        crate::model::Schedule::At {
+            year,
+            month,
+            day,
+            hour,
+            minute,
+            second,
+        } => {
+            format!(
+                "Automation — at {year:04}-{month:02}-{day:02} {hour:02}:{minute:02}:{second:02}"
+            )
+        }
+        crate::model::Schedule::Every { interval_seconds } => {
+            format!("Automation — every {interval_seconds}s")
+        }
+    }
 }
 
 /// Title match modes exposed to the picker UI.
