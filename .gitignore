@@ -5,9 +5,14 @@ dist/
 
 # Rust
 /target
+src-tauri/target/
 
-# Tauri
+# Tauri generated platform assets (Windows-only project)
 src-tauri/gen/
+src-tauri/icons/android/
+src-tauri/icons/ios/
+src-tauri/icons/Square*.png
+src-tauri/icons/StoreLogo.png
 
 # Editor / OS
 .vscode/
