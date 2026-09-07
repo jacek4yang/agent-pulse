@@ -2,6 +2,7 @@
 
 pub mod error;
 pub mod model;
+pub mod store;
 
 use tauri::Manager;
 
