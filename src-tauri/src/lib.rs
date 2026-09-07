@@ -6,7 +6,6 @@ pub mod platform;
 pub mod scheduler;
 pub mod store;
 
-
 use tauri::Manager;
 
 pub use error::{AppError, AppResult};
