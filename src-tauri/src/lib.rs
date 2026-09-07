@@ -8,6 +8,7 @@ pub mod model;
 pub mod platform;
 pub mod scheduler;
 pub mod store;
+pub mod tray;
 
 use std::sync::Arc;
 
