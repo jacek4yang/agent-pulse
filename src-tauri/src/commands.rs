@@ -220,34 +220,11 @@ pub fn get_settings(state: State<AppState>) -> Settings {
 }
 
 #[tauri::command]
-pub fn update_settings(
-    app: AppHandle,
-    state: State<AppState>,
-    settings: Settings,
-) -> AppResult<()> {
+pub fn update_settings(state: State<AppState>, settings: Settings) -> AppResult<()> {
     state.store.update(|doc| {
-        doc.settings = settings.clone();
+        doc.settings = settings;
         Ok(())
-    })?;
-    apply_autostart(&app, settings.start_with_windows)
-}
-
-/// Reflect the start-with-Windows preference via the autostart plugin
-/// (unelevated, per-user — spec §38).
-fn apply_autostart(app: &AppHandle, enabled: bool) -> AppResult<()> {
-    use tauri_plugin_autostart::ManagerExt;
-    let autostart = app.autolaunch();
-    let current = autostart.is_enabled().unwrap_or(false);
-    if enabled && !current {
-        autostart.enable().map_err(|e| {
-            AppError::PersistenceFailure(format!("failed to enable autostart: {e}"))
-        })?;
-    } else if !enabled && current {
-        autostart.disable().map_err(|e| {
-            AppError::PersistenceFailure(format!("failed to disable autostart: {e}"))
-        })?;
-    }
-    Ok(())
+    })
 }
 
 /// Build a quick task from the fast-creation flow (spec §33).

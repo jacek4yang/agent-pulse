@@ -12,6 +12,8 @@ pub mod tray;
 
 use std::sync::Arc;
 
+use std::sync::Arc;
+
 use tauri::Manager;
 
 pub use error::{AppError, AppResult};

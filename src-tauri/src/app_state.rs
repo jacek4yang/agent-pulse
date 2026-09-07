@@ -4,7 +4,6 @@
 use std::sync::{Arc, Mutex};
 
 use tauri::{AppHandle, Emitter, Manager};
-use tauri_plugin_notification::NotificationExt;
 
 use crate::error::AppResult;
 use crate::executor::{self, PlatformAutomation};
@@ -122,33 +121,11 @@ impl AppState {
                     doc.history.push(record.clone());
                     let limit = doc.settings.history_limit;
                     bound_history(&mut doc.history, limit);
-                    let (notify_success, notify_failure) = (
-                        doc.settings.notify_on_success,
-                        doc.settings.notify_on_failure,
-                    );
                     if let Some(t) = doc.tasks.iter_mut().find(|t| t.id == updated_task.id) {
                         *t = updated_task.clone();
                     }
                     if let Err(e) = state.store.save(&doc) {
                         eprintln!("save after execution failed: {e}");
-                    }
-                    // Desktop notifications per user settings (spec §39).
-                    if (is_success && notify_success) || (!is_success && notify_failure) {
-                        let body = if is_success {
-                            format!("{} executed successfully.", updated_task.name)
-                        } else if let ExecutionOutcome::Failure { error_message, .. } =
-                            &record.outcome
-                        {
-                            format!("{}: {}", updated_task.name, error_message)
-                        } else {
-                            format!("{} failed.", updated_task.name)
-                        };
-                        let _ = app
-                            .notification()
-                            .builder()
-                            .title("Agent Pulse")
-                            .body(body)
-                            .show();
                     }
                 }
 
