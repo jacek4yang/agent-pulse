@@ -1,0 +1,47 @@
+name: Bug report
+description: Report a defect in Agent Pulse
+labels: ["type:bug"]
+body:
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: Include what you expected to happen instead.
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Create task …
+        2. …
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - scheduler
+        - window targeting / focus
+        - input execution
+        - ui
+        - persistence
+        - tray / notifications / autostart
+        - packaging / release
+        - other
+    validations:
+      required: true
+  - type: textarea
+    id: history
+    attributes:
+      label: Relevant history entry
+      description: Paste the structured error from the History page if available.
+  - type: input
+    id: version
+    attributes:
+      label: Agent Pulse version
+      placeholder: v0.1.0
+    validations:
+      required: true
