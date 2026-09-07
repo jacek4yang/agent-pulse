@@ -1,7 +1,9 @@
 //! Agent Pulse — application core library.
 
 pub mod error;
+pub mod executor;
 pub mod model;
+pub mod platform;
 pub mod scheduler;
 pub mod store;
 
