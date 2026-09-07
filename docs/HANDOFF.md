@@ -5,11 +5,11 @@
 
 ## Current milestone
 
-v0.1.0 — MVP (code complete; release pending tag)
+v0.1.1 (post-MVP fixes released)
 
 ## Active Issue
 
-#19 Release pipeline — final steps executed in this checkpoint
+None (v0.1.1 released; next work = v0.2.0 per ROADMAP)
 
 ## Active branch
 
@@ -50,6 +50,14 @@ Last successful local commands:
 - `cargo clippy --workspace --all-targets --all-features -- -D warnings` ✓
 - `cargo test --workspace` ✓ 77 passed
 - `pnpm lint` ✓ / `pnpm build` ✓
+
+## v0.1.1 addenda
+
+- #29 (P0): commands requested `State<AppState>` while `Arc<AppState>` was managed —
+  every stateful command failed. All signatures now use `State<Arc<AppState>>`.
+- #30: Quick Automation supports After/At/Every with second precision and fully
+  custom action flows; `create_quick_task` takes any schedule + actions.
+- #32: full Chinese + English UI; language setting persisted in Settings.
 
 ## Known problems / deferred
 
