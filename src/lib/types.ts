@@ -2,6 +2,7 @@
 // serde tags are the contract.
 
 export type Theme = "system" | "light" | "dark";
+export type Language = "system" | "en" | "zh";
 export type MisfirePolicy = "run_immediately" | "skip";
 export type TitleMatchMode = "exact" | "contains" | "regex" | "any";
 
@@ -77,6 +78,7 @@ export type HistoryRecord = {
 
 export type Settings = {
   theme: Theme;
+  language: Language;
   notify_on_success: boolean;
   notify_on_failure: boolean;
   start_with_windows: boolean;
@@ -101,6 +103,7 @@ export type AppErrorShape = { code: string; message: string };
 
 export const DEFAULT_SETTINGS: Settings = {
   theme: "system",
+  language: "system",
   notify_on_success: true,
   notify_on_failure: true,
   start_with_windows: false,

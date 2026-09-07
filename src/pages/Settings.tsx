@@ -1,11 +1,13 @@
 import { useState } from "react";
 import { api, errorMessage } from "../lib/api";
 import { Card, Toggle } from "../components/ui";
-import type { Settings, Theme } from "../lib/types";
+import { useI18n } from "../lib/i18n";
+import type { Language, Settings, Theme } from "../lib/types";
 
 export function SettingsPage({
   settings, onChanged,
 }: { settings: Settings; onChanged: () => void }) {
+  const { t } = useI18n();
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -25,47 +27,55 @@ export function SettingsPage({
     <>
       <div className="page-header">
         <div>
-          <h1>Settings</h1>
-          <div className="page-sub">{saved ? "Saved ✓" : "Changes are saved automatically."}</div>
+          <h1>{t("settingsTitle")}</h1>
+          <div className="page-sub">{saved ? t("saved") : t("autoSaved")}</div>
         </div>
       </div>
       {error && <div className="error-banner">{error}</div>}
 
-      <Card title="Appearance">
+      <Card title={t("appearance")}>
         <div className="field">
-          <span className="field-label">Theme</span>
+          <span className="field-label">{t("language")}</span>
+          <select className="input" value={settings.language} onChange={(e) => update({ language: e.target.value as Language })}>
+            <option value="system">{t("langSystem")}</option>
+            <option value="en">{t("langEn")}</option>
+            <option value="zh">{t("langZh")}</option>
+          </select>
+        </div>
+        <div className="field">
+          <span className="field-label">{t("theme")}</span>
           <select className="input" value={settings.theme} onChange={(e) => update({ theme: e.target.value as Theme })}>
-            <option value="system">System</option>
-            <option value="light">Light</option>
-            <option value="dark">Dark</option>
+            <option value="system">{t("langSystem")}</option>
+            <option value="light">{t("light")}</option>
+            <option value="dark">{t("dark")}</option>
           </select>
         </div>
       </Card>
 
-      <Card title="Notifications">
+      <Card title={t("notifications")}>
         <Toggle
-          label="Notify on success"
-          hint="Desktop notification when a sequence completes."
+          label={t("notifySuccess")}
+          hint={t("notifySuccessHint")}
           checked={settings.notify_on_success}
           onChange={(v) => update({ notify_on_success: v })}
         />
         <Toggle
-          label="Notify on failure"
-          hint="Desktop notification when a sequence aborts — including when no input was sent."
+          label={t("notifyFailure")}
+          hint={t("notifyFailureHint")}
           checked={settings.notify_on_failure}
           onChange={(v) => update({ notify_on_failure: v })}
         />
       </Card>
 
-      <Card title="Behavior">
+      <Card title={t("behavior")}>
         <Toggle
-          label="Abort on focus loss"
-          hint="Stop the sequence if the target stops being the foreground window (recommended)."
+          label={t("abortOnFocusLoss")}
+          hint={t("abortOnFocusLossHint")}
           checked={settings.abort_on_focus_loss}
           onChange={(v) => update({ abort_on_focus_loss: v })}
         />
         <div className="field" style={{ marginTop: 10 }}>
-          <span className="field-label">History limit</span>
+          <span className="field-label">{t("historyLimit")}</span>
           <input
             className="input"
             type="number"
@@ -77,16 +87,16 @@ export function SettingsPage({
         </div>
       </Card>
 
-      <Card title="Startup">
+      <Card title={t("startup")}>
         <Toggle
-          label="Start with Windows"
-          hint="Launch Agent Pulse when you sign in."
+          label={t("startWithWindows")}
+          hint={t("startWithWindowsHint")}
           checked={settings.start_with_windows}
           onChange={(v) => update({ start_with_windows: v })}
         />
         <Toggle
-          label="Start minimized"
-          hint="Begin with the main window hidden in the tray."
+          label={t("startMinimized")}
+          hint={t("startMinimizedHint")}
           checked={settings.start_minimized}
           onChange={(v) => update({ start_minimized: v })}
         />

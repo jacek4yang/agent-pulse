@@ -2,6 +2,7 @@ import { useState } from "react";
 import { describeAction, keyLabel } from "../lib/format";
 import type { Action, Key } from "../lib/types";
 import { Field, Modal } from "./ui";
+import { useI18n } from "../lib/i18n";
 
 const NAMED_KEYS: { id: Key; label: string }[] = [
   { id: "enter", label: "Enter" }, { id: "escape", label: "Escape" },
@@ -12,19 +13,20 @@ const NAMED_KEYS: { id: Key; label: string }[] = [
   { id: "ctrl", label: "Ctrl" }, { id: "shift", label: "Shift" }, { id: "alt", label: "Alt" },
 ];
 
-const ACTION_KINDS: { id: Action["type"]; label: string }[] = [
-  { id: "focus_target", label: "Focus Target" },
-  { id: "restore_target", label: "Restore Target" },
-  { id: "type_text", label: "Type Text" },
-  { id: "press_key", label: "Press Key" },
-  { id: "key_combination", label: "Key Combination" },
-  { id: "delay", label: "Delay" },
-  { id: "notify", label: "Notify" },
+const ACTION_KINDS: { id: Action["type"]; key: "actionFocus" | "actionRestore" | "actionTypeText" | "actionPressKey" | "actionCombo" | "actionDelay" | "actionNotify" }[] = [
+  { id: "focus_target", key: "actionFocus" },
+  { id: "restore_target", key: "actionRestore" },
+  { id: "type_text", key: "actionTypeText" },
+  { id: "press_key", key: "actionPressKey" },
+  { id: "key_combination", key: "actionCombo" },
+  { id: "delay", key: "actionDelay" },
+  { id: "notify", key: "actionNotify" },
 ];
 
 export function ActionList({
   actions, onChange, readOnly = false,
 }: { actions: Action[]; onChange?: (next: Action[]) => void; readOnly?: boolean }) {
+  const { t, lang } = useI18n();
   const [editing, setEditing] = useState<number | null>(null);
 
   const move = (i: number, dir: -1 | 1) => {
@@ -40,13 +42,13 @@ export function ActionList({
       {actions.map((a, i) => (
         <div className="action-row" key={i}>
           <span className="action-idx">{i + 1}</span>
-          <span className="action-desc" title={describeAction(a)}>{describeAction(a)}</span>
+          <span className="action-desc" title={describeAction(a, lang)}>{describeAction(a, lang)}</span>
           {!readOnly && (
             <span className="action-controls">
-              <button className="icon-btn" title="Edit" onClick={() => setEditing(i)}>✎</button>
+              <button className="icon-btn" title={t("edit")} onClick={() => setEditing(i)}>✎</button>
               <button className="icon-btn" title="Move up" disabled={i === 0} onClick={() => move(i, -1)}>↑</button>
               <button className="icon-btn" title="Move down" disabled={i === actions.length - 1} onClick={() => move(i, 1)}>↓</button>
-              <button className="icon-btn" title="Delete" onClick={() => onChange?.(actions.filter((_, j) => j !== i))}>✕</button>
+              <button className="icon-btn" title={t("clear")} onClick={() => onChange?.(actions.filter((_, j) => j !== i))}>✕</button>
             </span>
           )}
         </div>
@@ -71,6 +73,7 @@ export function ActionList({
 }
 
 function AddAction({ onAdd }: { onAdd: (a: Action) => void }) {
+  const { t } = useI18n();
   const [open, setOpen] = useState(false);
   return (
     <>
@@ -85,12 +88,12 @@ function AddAction({ onAdd }: { onAdd: (a: Action) => void }) {
             e.target.value = "";
           }}
         >
-          <option value="">Add action…</option>
+          <option value="">{t("addAction")}</option>
           {ACTION_KINDS.map((k) => (
-            <option key={k.id} value={k.id}>{k.label}</option>
+            <option key={k.id} value={k.id}>{t(k.key)}</option>
           ))}
         </select>
-        <button className="btn small" style={{ flex: "none" }} onClick={() => setOpen(true)}>Configure…</button>
+        <button className="btn small" style={{ flex: "none" }} onClick={() => setOpen(true)}>{t("configure")}</button>
       </div>
       {open && (
         <EditActionModal
@@ -120,6 +123,7 @@ function defaultAction(kind: Action["type"]): Action {
 function EditActionModal({
   action, onClose, onSave,
 }: { action?: Action; onClose: () => void; onSave: (a: Action) => void }) {
+  const { t } = useI18n();
   const [kind, setKind] = useState<Action["type"]>(action?.type ?? "type_text");
   const [text, setText] = useState(action?.type === "type_text" ? action.text : "continue");
   const [key, setKey] = useState<Key>(action?.type === "press_key" ? action.key : "enter");
@@ -147,44 +151,44 @@ function EditActionModal({
   };
 
   return (
-    <Modal title={action ? "Edit Action" : "Add Action"} onClose={onClose}>
-      <Field label="Action">
+    <Modal title={action ? t("editAction") : t("addActionTitle")} onClose={onClose}>
+      <Field label={t("actions")}>
         <select className="input" value={kind} onChange={(e) => setKind(e.target.value as Action["type"])}>
-          {ACTION_KINDS.map((k) => <option key={k.id} value={k.id}>{k.label}</option>)}
+          {ACTION_KINDS.map((k) => <option key={k.id} value={k.id}>{t(k.key)}</option>)}
         </select>
       </Field>
       {kind === "type_text" && (
-        <Field label="Text to type">
+        <Field label={t("textToType")}>
           <input className="input" value={text} onChange={(e) => setText(e.target.value)} />
         </Field>
       )}
       {kind === "press_key" && (
         <>
-          <Field label="Key">
+          <Field label={t("key")}>
             <select className="input" value={typeof key === "string" ? key : ""} onChange={(e) => setKey(e.target.value as Key)}>
               {NAMED_KEYS.map((k) => <option key={k.id as string} value={k.id as string}>{k.label}</option>)}
             </select>
           </Field>
           <div className="row">
-            <Field label="Count"><input className="input" type="number" min={1} value={count} onChange={(e) => setCount(Number(e.target.value))} /></Field>
-            <Field label="Interval (ms)"><input className="input" type="number" min={0} value={intervalMs} onChange={(e) => setIntervalMs(Number(e.target.value))} /></Field>
+            <Field label={t("count")}><input className="input" type="number" min={1} value={count} onChange={(e) => setCount(Number(e.target.value))} /></Field>
+            <Field label={t("intervalMs")}><input className="input" type="number" min={0} value={intervalMs} onChange={(e) => setIntervalMs(Number(e.target.value))} /></Field>
           </div>
         </>
       )}
       {kind === "key_combination" && (
-        <Field label="Combination (e.g. Ctrl+C, Ctrl+Shift+P)">
+        <Field label={t("comboHint")}>
           <input className="input" value={combo} onChange={(e) => setCombo(e.target.value)} />
         </Field>
       )}
       {kind === "delay" && (
-        <Field label="Milliseconds"><input className="input" type="number" min={0} value={ms} onChange={(e) => setMs(Number(e.target.value))} /></Field>
+        <Field label={t("milliseconds")}><input className="input" type="number" min={0} value={ms} onChange={(e) => setMs(Number(e.target.value))} /></Field>
       )}
       {kind === "notify" && (
-        <Field label="Message"><input className="input" value={message} onChange={(e) => setMessage(e.target.value)} /></Field>
+        <Field label={t("message")}><input className="input" value={message} onChange={(e) => setMessage(e.target.value)} /></Field>
       )}
       <div className="row" style={{ justifyContent: "flex-end" }}>
-        <button className="btn" onClick={onClose}>Cancel</button>
-        <button className="btn primary" onClick={save}>Save Action</button>
+        <button className="btn" onClick={onClose}>{t("cancel")}</button>
+        <button className="btn primary" onClick={save}>{t("saveAction")}</button>
       </div>
     </Modal>
   );
