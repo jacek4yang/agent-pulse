@@ -6,8 +6,6 @@ pub mod platform;
 pub mod scheduler;
 pub mod store;
 
-use tauri::Manager;
-
 pub use error::{AppError, AppResult};
 pub use model::Settings;
 
@@ -26,7 +24,7 @@ pub fn run() {
         .setup(|app| {
             #[cfg(debug_assertions)]
             {
-                use tauri::Emitter;
+                use tauri::{Emitter, Manager};
                 let window = app.get_webview_window("main");
                 if let Some(w) = window {
                     let _ = w.emit("app-ready", true);
