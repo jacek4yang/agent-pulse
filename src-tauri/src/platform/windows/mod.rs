@@ -2,9 +2,12 @@
 //! every block states its safety invariant. Documented, unprivileged APIs
 //! only — the app never requires elevation (docs/DECISIONS.md D12).
 
+pub(crate) mod automation;
 pub(crate) mod enumeration;
 pub(crate) mod focus;
+pub(crate) mod input;
 
+pub use automation::WindowsAutomation;
 pub use enumeration::{enumerate_visible_windows, is_minimized, verify_cached_window};
 pub use focus::{activate_window, foreground_window, is_foreground, restore_window};
 
