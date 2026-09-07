@@ -2,6 +2,7 @@
 
 pub mod error;
 pub mod model;
+pub mod platform;
 pub mod scheduler;
 pub mod store;
 
