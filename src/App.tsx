@@ -1,11 +1,13 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { api, subscribeToEvents } from "./lib/api";
 import type { HistoryRecord, ScheduledTask, Settings } from "./lib/types";
+import { DEFAULT_SETTINGS } from "./lib/types";
+import { I18nContext, resolveLanguage, translate, type StringKey } from "./lib/i18n";
+import { localeOf } from "./lib/i18n";
 import { Dashboard } from "./pages/Dashboard";
 import { Editor } from "./pages/Editor";
 import { History } from "./pages/History";
 import { SettingsPage } from "./pages/Settings";
-import { DEFAULT_SETTINGS } from "./lib/types";
 
 type Page = "dashboard" | "history" | "settings";
 
@@ -49,69 +51,84 @@ export default function App() {
     }
   }, [settings.theme]);
 
+  const i18n = useMemo(() => {
+    const lang = resolveLanguage(settings.language);
+    return {
+      lang,
+      locale: localeOf(lang),
+      t: (key: StringKey) => translate(lang, key),
+    };
+  }, [settings.language]);
+
   if (editorOpen) {
     return (
-      <div className="app">
-        <main className="main" style={{ paddingTop: 30 }}>
-          <div className="main-inner">
-            <Editor
-              task={editing}
-              onClose={() => setEditorOpen(false)}
-              onChanged={refresh}
-            />
-          </div>
-        </main>
-      </div>
+      <I18nContext.Provider value={i18n}>
+        <div className="app">
+          <main className="main" style={{ paddingTop: 30 }}>
+            <div className="main-inner">
+              <Editor
+                task={editing}
+                onClose={() => setEditorOpen(false)}
+                onChanged={refresh}
+              />
+            </div>
+          </main>
+        </div>
+      </I18nContext.Provider>
     );
   }
 
+  const t = i18n.t;
+
   return (
-    <div className="app">
-      <nav className="sidebar">
-        <div className="brand">
-          <div className="brand-mark" aria-hidden />
-          <span className="brand-name">Agent Pulse</span>
-        </div>
-        <button className={`nav-item${page === "dashboard" ? " active" : ""}`} onClick={() => setPage("dashboard")}>
-          ◈ Dashboard
-          <span className="nav-count">{tasks.filter((t) => t.enabled).length}</span>
-        </button>
-        <button className={`nav-item${page === "history" ? " active" : ""}`} onClick={() => setPage("history")}>
-          ☰ History
-        </button>
-        <button className={`nav-item${page === "settings" ? " active" : ""}`} onClick={() => setPage("settings")}>
-          ⚙ Settings
-        </button>
-        <div className="sidebar-footer">
-          <button
-            className="btn small"
-            style={{ width: "100%" }}
-            onClick={() => {
-              setEditing(null);
-              setEditorOpen(true);
-            }}
-          >
-            + New Automation
+    <I18nContext.Provider value={i18n}>
+      <div className="app">
+        <nav className="sidebar">
+          <div className="brand">
+            <div className="brand-mark" aria-hidden />
+            <span className="brand-name">{t("appName")}</span>
+          </div>
+          <button className={`nav-item${page === "dashboard" ? " active" : ""}`} onClick={() => setPage("dashboard")}>
+            ◈ {t("navDashboard")}
+            <span className="nav-count">{tasks.filter((task) => task.enabled).length}</span>
           </button>
-          <div style={{ marginTop: 10 }}>Scheduling runs in Rust — closing the window keeps it alive.</div>
-        </div>
-      </nav>
-      <main className="main">
-        <div className="main-inner">
-          {page === "dashboard" && (
-            <Dashboard
-              tasks={tasks}
-              onEdit={(t) => {
-                setEditing(t);
+          <button className={`nav-item${page === "history" ? " active" : ""}`} onClick={() => setPage("history")}>
+            ☰ {t("navHistory")}
+          </button>
+          <button className={`nav-item${page === "settings" ? " active" : ""}`} onClick={() => setPage("settings")}>
+            ⚙ {t("navSettings")}
+          </button>
+          <div className="sidebar-footer">
+            <button
+              className="btn small"
+              style={{ width: "100%" }}
+              onClick={() => {
+                setEditing(null);
                 setEditorOpen(true);
               }}
-              onChanged={refresh}
-            />
-          )}
-          {page === "history" && <History records={history} onChanged={refresh} />}
-          {page === "settings" && <SettingsPage settings={settings} onChanged={refresh} />}
-        </div>
-      </main>
-    </div>
+            >
+              {t("newAutomation")}
+            </button>
+            <div style={{ marginTop: 10 }}>{t("sidebarHint")}</div>
+          </div>
+        </nav>
+        <main className="main">
+          <div className="main-inner">
+            {page === "dashboard" && (
+              <Dashboard
+                tasks={tasks}
+                onEdit={(task) => {
+                  setEditing(task);
+                  setEditorOpen(true);
+                }}
+                onChanged={refresh}
+              />
+            )}
+            {page === "history" && <History records={history} onChanged={refresh} />}
+            {page === "settings" && <SettingsPage settings={settings} onChanged={refresh} />}
+          </div>
+        </main>
+      </div>
+    </I18nContext.Provider>
   );
 }

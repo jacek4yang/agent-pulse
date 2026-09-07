@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useI18n } from "../lib/i18n";
 import { api, errorCode, errorMessage } from "../lib/api";
 import { ActionList } from "../components/ActionList";
 import { WindowIcon, WindowPicker } from "../components/WindowPicker";
@@ -11,6 +12,7 @@ type ScheduleKind = Schedule["kind"];
 export function Editor({
   task, onClose, onChanged,
 }: { task: ScheduledTask | null; onClose: () => void; onChanged: () => void }) {
+  const { t } = useI18n();
   const [name, setName] = useState(task?.name ?? "");
   const [target, setTarget] = useState<WindowTarget>(task?.target ?? { title_match_mode: "contains" });
   const [kind, setKind] = useState<ScheduleKind>(task?.schedule?.kind ?? "after");
@@ -81,7 +83,7 @@ export function Editor({
     setBusy(true);
     try {
       const hit = await api.testWindowTarget(target);
-      setFlash(`Resolved: ${hit.title} (${hit.process_name}, PID ${hit.process_id})`);
+      setFlash(`${t("resolved")} ${hit.title} (${hit.process_name}, PID ${hit.process_id})`);
     } catch (e) {
       setError(`${errorCode(e) ?? "Error"}: ${errorMessage(e)}`);
     } finally {
@@ -93,8 +95,8 @@ export function Editor({
     <>
       <div className="page-header">
         <div>
-          <h1>{task ? "Edit Automation" : "New Automation"}</h1>
-          <div className="page-sub">Actions run strictly in order against the verified target window.</div>
+          <h1>{task ? t("editAutomation") : t("newAutomationTitle")}</h1>
+          <div className="page-sub">{t("editorSub")}</div>
         </div>
       </div>
 
@@ -109,18 +111,18 @@ export function Editor({
       )}
 
       <Card>
-        <Field label="Name">
-          <input className="input" value={name} onChange={(e) => setName(e.target.value)} placeholder="Codex 5-hour Continue" />
+        <Field label={t("name")}>
+          <input className="input" value={name} onChange={(e) => setName(e.target.value)} placeholder={t("namePlaceholder")} />
         </Field>
 
-        <Field label="Target">
+        <Field label={t("target")}>
           <div className="row">
             <div className="input" style={{ display: "flex", alignItems: "center", gap: 8, minHeight: 33 }}>
               {target.process_name ? (
                 <>
                   <WindowIcon processName={target.process_name} size={18} />
                   <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                    {target.title || "(any title)"} — {target.process_name} · PID {target.process_id}
+                    {target.title || t("anyTitle")} — {target.process_name} · PID {target.process_id}
                   </span>
                 </>
               ) : (
@@ -132,59 +134,59 @@ export function Editor({
               style={{ flex: "none", width: 110 }}
               value={target.title_match_mode}
               onChange={(e) => setTarget({ ...target, title_match_mode: e.target.value as WindowTarget["title_match_mode"] })}
-              aria-label="Title match mode"
+              aria-label={t("titleMatchMode")}
             >
-              <option value="contains">Contains</option>
-              <option value="exact">Exact</option>
-              <option value="regex">Regex</option>
-              <option value="any">Any</option>
+              <option value="contains">{t("matchContains")}</option>
+              <option value="exact">{t("matchExact")}</option>
+              <option value="regex">{t("matchRegex")}</option>
+              <option value="any">{t("matchAny")}</option>
             </select>
-            <button className="btn" style={{ flex: "none" }} onClick={() => setPickerOpen(true)}>Select…</button>
+            <button className="btn" style={{ flex: "none" }} onClick={() => setPickerOpen(true)}>{t("select")}</button>
           </div>
         </Field>
 
-        <Field label="Schedule">
+        <Field label={t("schedule")}>
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
             <label className="row" style={{ gap: 8 }}>
               <input type="radio" checked={kind === "after"} onChange={() => setKind("after")} style={{ flex: "none" }} />
-              <span style={{ flex: "none", fontSize: 12 }}>After</span>
+              <span style={{ flex: "none", fontSize: 12 }}>{t("schedAfter")}</span>
               <input className="input" type="number" min={0} value={hours} onChange={(e) => setHours(Number(e.target.value))} aria-label="Hours" />
-              <span className="muted" style={{ flex: "none" }}>h</span>
+              <span className="muted" style={{ flex: "none" }}>{t("hUnit")}</span>
               <input className="input" type="number" min={0} value={minutes} onChange={(e) => setMinutes(Number(e.target.value))} aria-label="Minutes" />
-              <span className="muted" style={{ flex: "none" }}>m</span>
+              <span className="muted" style={{ flex: "none" }}>{t("mUnit")}</span>
               <input className="input" type="number" min={0} value={seconds} onChange={(e) => setSeconds(Number(e.target.value))} aria-label="Seconds" />
-              <span className="muted" style={{ flex: "none" }}>s</span>
+              <span className="muted" style={{ flex: "none" }}>{t("sUnit")}</span>
             </label>
             <label className="row" style={{ gap: 8 }}>
               <input type="radio" checked={kind === "at"} onChange={() => setKind("at")} style={{ flex: "none" }} />
-              <span style={{ flex: "none", fontSize: 12 }}>At</span>
+              <span style={{ flex: "none", fontSize: 12 }}>{t("schedAt")}</span>
               <input className="input" type="datetime-local" step={1} value={atValue} onChange={(e) => setAtValue(e.target.value)} disabled={kind !== "at"} />
             </label>
             <label className="row" style={{ gap: 8 }}>
               <input type="radio" checked={kind === "every"} onChange={() => setKind("every")} style={{ flex: "none" }} />
-              <span style={{ flex: "none", fontSize: 12 }}>Every</span>
+              <span style={{ flex: "none", fontSize: 12 }}>{t("schedEvery")}</span>
               <input className="input" type="number" min={1} value={everyMinutes} onChange={(e) => setEveryMinutes(Number(e.target.value))} disabled={kind !== "every"} />
-              <span className="muted" style={{ flex: "none" }}>minutes</span>
+              <span className="muted" style={{ flex: "none" }}>{t("minutes")}</span>
             </label>
           </div>
         </Field>
 
-        <Field label="Misfire policy">
+        <Field label={t("misfirePolicy")}>
           <select className="input" value={policy} onChange={(e) => setPolicy(e.target.value as MisfirePolicy)}>
-            <option value="run_immediately">Run immediately when overdue</option>
-            <option value="skip">Skip missed occurrence</option>
+            <option value="run_immediately">{t("misfireRun")}</option>
+            <option value="skip">{t("misfireSkip")}</option>
           </select>
         </Field>
       </Card>
 
-      <Card title={`Actions (${actions.length})`}>
+      <Card title={`${t("actionsCount")} (${actions.length})`}>
         <ActionList actions={actions} onChange={setActions} />
       </Card>
 
       <div className="row" style={{ justifyContent: "flex-end", marginTop: 14 }}>
-        <button className="btn" onClick={onClose}>Cancel</button>
-        <button className="btn" disabled={busy} onClick={test}>Test Target</button>
-        <button className="btn primary" disabled={busy} onClick={save}>Save</button>
+        <button className="btn" onClick={onClose}>{t("cancel")}</button>
+        <button className="btn" disabled={busy} onClick={test}>{t("testTarget")}</button>
+        <button className="btn primary" disabled={busy} onClick={save}>{t("save")}</button>
       </div>
 
       <WindowPicker

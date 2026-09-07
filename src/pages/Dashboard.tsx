@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { api, errorCode, errorMessage } from "../lib/api";
 import { formatCountdown, formatSchedule, formatTime } from "../lib/format";
+import { useI18n } from "../lib/i18n";
 import { PRESETS, type Action, type Preset, type ScheduledTask, type Schedule, type WindowTarget } from "../lib/types";
 import { Card, Empty, Field } from "../components/ui";
 import { WindowPicker, WindowIcon } from "../components/WindowPicker";
@@ -18,21 +19,6 @@ const TIME_PRESETS: { h: number; m: number; s: number; label: string }[] = [
 type ScheduleMode = "after" | "at" | "every";
 type ActionMode = "preset" | "custom";
 
-/** "Sep 8th, 2026 1:26:05 AM" style preview of the picked local time. */
-function formatExactTime(d: Date): string {
-  if (Number.isNaN(d.getTime())) return "—";
-  const day = d.getDate();
-  const suffix =
-    day % 10 === 1 && day !== 11 ? "st" :
-    day % 10 === 2 && day !== 12 ? "nd" :
-    day % 10 === 3 && day !== 13 ? "rd" : "th";
-  const month = d.toLocaleString(undefined, { month: "short" });
-  const time = d.toLocaleString(undefined, {
-    hour: "numeric", minute: "2-digit", second: "2-digit", hour12: true,
-  });
-  return `${month} ${day}${suffix}, ${d.getFullYear()} ${time}`;
-}
-
 /** Local datetime-local value (with seconds) for `now + 1h`. */
 function defaultAtValue(): string {
   const d = new Date(Date.now() + 3600_000);
@@ -43,6 +29,7 @@ function defaultAtValue(): string {
 export function Dashboard({
   tasks, onEdit, onChanged,
 }: { tasks: ScheduledTask[]; onEdit: (t: ScheduledTask) => void; onChanged: () => void }) {
+  const { t, lang } = useI18n();
   const [now, setNow] = useState(Date.now());
   useEffect(() => {
     const id = setInterval(() => setNow(Date.now()), 1000);
@@ -78,8 +65,8 @@ export function Dashboard({
 
   const atPreview = useMemo(() => {
     const d = new Date(atValue);
-    return formatExactTime(d);
-  }, [atValue]);
+    return formatExactTimeLocal(d, lang);
+  }, [atValue, lang]);
 
   const buildSchedule = (): Schedule => {
     switch (schedMode) {
@@ -138,7 +125,7 @@ export function Dashboard({
 
   const startAutomation = async () => {
     if (!target) {
-      setError("Select a target window first.");
+      setError(t("selectTargetFirst"));
       return;
     }
     setBusy(true);
@@ -159,14 +146,14 @@ export function Dashboard({
     <>
       <div className="page-header">
         <div>
-          <h1>Dashboard</h1>
-          <div className="page-sub">Schedule an automation or manage existing ones.</div>
+          <h1>{t("dashboardTitle")}</h1>
+          <div className="page-sub">{t("dashboardSub")}</div>
         </div>
       </div>
 
-      <Card title="Quick Automation">
+      <Card title={t("quickAutomation")}>
         {error && <div className="error-banner">{error}</div>}
-        <Field label="Target">
+        <Field label={t("target")}>
           <div className="row">
             <div className="input" style={{ display: "flex", alignItems: "center", gap: 8, minHeight: 33 }}>
               {picked ? (
@@ -175,18 +162,18 @@ export function Dashboard({
                   <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{picked}</span>
                 </>
               ) : (
-                <span className="muted">No window selected</span>
+                <span className="muted">{t("noWindowSelected")}</span>
               )}
             </div>
-            <button className="btn" style={{ flex: "none" }} onClick={() => setPickerOpen(true)}>Select…</button>
+            <button className="btn" style={{ flex: "none" }} onClick={() => setPickerOpen(true)}>{t("select")}</button>
           </div>
         </Field>
 
-        <Field label="Schedule">
+        <Field label={t("schedule")}>
           <div className="quick-presets" style={{ marginBottom: 8 }}>
             {(["after", "at", "every"] as ScheduleMode[]).map((mode) => (
               <button key={mode} className={`chip${schedMode === mode ? " selected" : ""}`} onClick={() => setSchedMode(mode)}>
-                {mode === "after" ? "After" : mode === "at" ? "At (exact time)" : "Every (recurring)"}
+                {mode === "after" ? t("schedAfter") : mode === "at" ? t("schedAt") : t("schedEvery")}
               </button>
             ))}
           </div>
@@ -194,23 +181,23 @@ export function Dashboard({
           {schedMode === "after" && (
             <>
               <div className="quick-presets" style={{ marginBottom: 8 }}>
-                {TIME_PRESETS.map((t, i) => (
-                  <button key={t.label} className={`chip${timeIdx === i ? " selected" : ""}`} onClick={() => setTimeIdx(i)}>
-                    {t.label}
+                {TIME_PRESETS.map((p, i) => (
+                  <button key={p.label} className={`chip${timeIdx === i ? " selected" : ""}`} onClick={() => setTimeIdx(i)}>
+                    {p.label}
                   </button>
                 ))}
                 <button className={`chip${timeIdx === TIME_PRESETS.length ? " selected" : ""}`} onClick={() => setTimeIdx(TIME_PRESETS.length)}>
-                  Custom
+                  {t("custom")}
                 </button>
               </div>
               {timeIdx === TIME_PRESETS.length && (
                 <div className="row" style={{ marginTop: 8 }}>
-                  <input className="input" type="number" min={0} value={h} onChange={(e) => setH(Number(e.target.value))} aria-label="Hours" />
-                  <span className="muted" style={{ flex: "none" }}>hours</span>
-                  <input className="input" type="number" min={0} max={59} value={m} onChange={(e) => setM(Number(e.target.value))} aria-label="Minutes" />
-                  <span className="muted" style={{ flex: "none" }}>minutes</span>
-                  <input className="input" type="number" min={0} max={59} value={s} onChange={(e) => setS(Number(e.target.value))} aria-label="Seconds" />
-                  <span className="muted" style={{ flex: "none" }}>seconds</span>
+                  <input className="input" type="number" min={0} value={h} onChange={(e) => setH(Number(e.target.value))} aria-label={t("hours")} />
+                  <span className="muted" style={{ flex: "none" }}>{t("hours")}</span>
+                  <input className="input" type="number" min={0} max={59} value={m} onChange={(e) => setM(Number(e.target.value))} aria-label={t("minutes")} />
+                  <span className="muted" style={{ flex: "none" }}>{t("minutes")}</span>
+                  <input className="input" type="number" min={0} max={59} value={s} onChange={(e) => setS(Number(e.target.value))} aria-label={t("seconds")} />
+                  <span className="muted" style={{ flex: "none" }}>{t("seconds")}</span>
                 </div>
               )}
             </>
@@ -224,38 +211,38 @@ export function Dashboard({
                 step={1}
                 value={atValue}
                 onChange={(e) => setAtValue(e.target.value)}
-                aria-label="Exact date and time"
+                aria-label={t("schedAt")}
               />
               <div className="muted" style={{ marginTop: 5, fontSize: 12 }}>
-                Fires at {atPreview} (local time)
+                {t("firesAt")} {atPreview} {t("localTime")}
               </div>
             </>
           )}
 
           {schedMode === "every" && (
             <div className="row" style={{ marginTop: 8 }}>
-              <input className="input" type="number" min={0} value={everyMin} onChange={(e) => setEveryMin(Number(e.target.value))} aria-label="Minutes" />
-              <span className="muted" style={{ flex: "none" }}>minutes</span>
-              <input className="input" type="number" min={0} max={59} value={everySec} onChange={(e) => setEverySec(Number(e.target.value))} aria-label="Seconds" />
-              <span className="muted" style={{ flex: "none" }}>seconds</span>
+              <input className="input" type="number" min={0} value={everyMin} onChange={(e) => setEveryMin(Number(e.target.value))} aria-label={t("minutes")} />
+              <span className="muted" style={{ flex: "none" }}>{t("minutes")}</span>
+              <input className="input" type="number" min={0} max={59} value={everySec} onChange={(e) => setEverySec(Number(e.target.value))} aria-label={t("seconds")} />
+              <span className="muted" style={{ flex: "none" }}>{t("seconds")}</span>
             </div>
           )}
         </Field>
 
-        <Field label="Actions">
+        <Field label={t("actions")}>
           <div className="quick-presets" style={{ marginBottom: 8 }}>
             <button className={`chip${actionMode === "preset" ? " selected" : ""}`} onClick={() => setActionMode("preset")}>
-              Preset
+              {t("preset")}
             </button>
             <button className={`chip${actionMode === "custom" ? " selected" : ""}`} onClick={() => setActionMode("custom")}>
-              Custom flow
+              {t("customFlow")}
             </button>
           </div>
           {actionMode === "preset" ? (
             <div className="quick-presets">
               {PRESETS.map((p) => (
                 <button key={p.id} className={`chip${preset === p.id ? " selected" : ""}`} onClick={() => setPreset(p.id)}>
-                  {p.label}
+                  {presetLabel(p.id, lang)}
                 </button>
               ))}
             </div>
@@ -266,21 +253,17 @@ export function Dashboard({
 
         <div className="row" style={{ justifyContent: "flex-end" }}>
           <button className="btn primary" disabled={busy} onClick={startAutomation}>
-            {busy ? "Starting…" : "Start Automation"}
+            {busy ? t("starting") : t("startAutomation")}
           </button>
         </div>
       </Card>
 
-      <Card title={`Automations (${tasks.length})`}>
+      <Card title={`${t("automations")} (${tasks.length})`}>
         {tasks.length === 0 ? (
-          <Empty
-            icon="⏱"
-            title="No automations yet"
-            hint="Use Quick Automation above to schedule your first sequence."
-          />
+          <Empty icon="⏱" title={t("noAutomations")} hint={t("noAutomationsHint")} />
         ) : (
-          tasks.map((t) => (
-            <TaskRow key={t.id} task={t} now={now} onEdit={onEdit} onChanged={onChanged} />
+          tasks.map((task) => (
+            <TaskRow key={task.id} task={task} now={now} onEdit={onEdit} onChanged={onChanged} />
           ))
         )}
       </Card>
@@ -288,8 +271,8 @@ export function Dashboard({
       <WindowPicker
         open={pickerOpen}
         onClose={() => setPickerOpen(false)}
-        onPick={(t, c) => {
-          setTarget(t);
+        onPick={(pickedTarget, c) => {
+          setTarget(pickedTarget);
           setPicked(c.title);
           setPickerOpen(false);
         }}
@@ -298,9 +281,39 @@ export function Dashboard({
   );
 }
 
+function presetLabel(p: Preset, lang: "en" | "zh"): string {
+  const labels: Record<Preset, [string, string]> = {
+    continue_confirm: ["Continue + Confirm", "Continue + 确认"],
+    continue: ["Continue", "Continue"],
+    confirm_continue: ["Confirm + Continue", "确认 + Continue"],
+    double_enter: ["Double Enter", "双击 Enter"],
+    empty_submit: ["Empty Submit", "空提交"],
+  };
+  return labels[p][lang === "zh" ? 1 : 0];
+}
+
+function formatExactTimeLocal(d: Date, lang: "en" | "zh"): string {
+  if (Number.isNaN(d.getTime())) return "—";
+  if (lang === "zh") {
+    const p2 = (n: number) => String(n).padStart(2, "0");
+    return `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日 ${p2(d.getHours())}:${p2(d.getMinutes())}:${p2(d.getSeconds())}`;
+  }
+  const day = d.getDate();
+  const suffix =
+    day % 10 === 1 && day !== 11 ? "st" :
+    day % 10 === 2 && day !== 12 ? "nd" :
+    day % 10 === 3 && day !== 13 ? "rd" : "th";
+  const month = d.toLocaleString("en-US", { month: "short" });
+  const time = d.toLocaleString("en-US", {
+    hour: "numeric", minute: "2-digit", second: "2-digit", hour12: true,
+  });
+  return `${month} ${day}${suffix}, ${d.getFullYear()} ${time}`;
+}
+
 function TaskRow({
   task, now, onEdit, onChanged,
 }: { task: ScheduledTask; now: number; onEdit: (t: ScheduledTask) => void; onChanged: () => void }) {
+  const { t, locale } = useI18n();
   const [busy, setBusy] = useState(false);
   const [flash, setFlash] = useState<string | null>(null);
 
@@ -323,27 +336,27 @@ function TaskRow({
         <div style={{ minWidth: 0 }}>
           <div className="task-name" style={{ opacity: task.enabled ? 1 : 0.55 }}>{task.name}</div>
           <div className="task-meta">
-            <span>{task.target.process_name ?? "any process"}</span>
+            <span>{task.target.process_name ?? "—"}</span>
             <span>·</span>
-            <span>{formatSchedule(task)}</span>
+            <span>{formatSchedule(task, locale === "zh-CN" ? "zh" : "en")}</span>
           </div>
         </div>
         <div className="task-actions">
-          {!task.enabled && <span className="badge paused">paused</span>}
+          {!task.enabled && <span className="badge paused">{t("paused")}</span>}
           <button className="btn small" disabled={busy} onClick={() => act(() => api.setTaskEnabled(task.id, !task.enabled))}>
-            {task.enabled ? "Pause" : "Resume"}
+            {task.enabled ? t("pause") : t("resume")}
           </button>
-          <button className="btn small" disabled={busy} onClick={() => act(() => api.runTaskNow(task.id))}>Run Now</button>
-          <button className="btn small ghost" onClick={() => onEdit(task)}>Edit</button>
+          <button className="btn small" disabled={busy} onClick={() => act(() => api.runTaskNow(task.id))}>{t("runNow")}</button>
+          <button className="btn small ghost" onClick={() => onEdit(task)}>{t("edit")}</button>
           <button className="btn small ghost" disabled={busy} onClick={() => act(() => api.deleteTask(task.id))}>✕</button>
         </div>
       </div>
       <div className="task-meta">
-        <span>Next run</span>
-        <span className="countdown">{task.enabled ? formatCountdown(task.next_run_at, now) : "—"}</span>
+        <span>{t("nextRun")}</span>
+        <span className="countdown">{task.enabled ? formatCountdown(task.next_run_at, now, locale === "zh-CN" ? "zh" : "en") : "—"}</span>
         <span>·</span>
-        <span>Last</span>
-        <span>{formatTime(task.last_run_at)}</span>
+        <span>{t("last")}</span>
+        <span>{formatTime(task.last_run_at, locale)}</span>
       </div>
       {flash && <div className="error-banner" style={{ marginBottom: 0 }}>{flash}</div>}
     </div>

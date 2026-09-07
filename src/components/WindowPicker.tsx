@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { api, errorMessage } from "../lib/api";
 import type { TitleMatchMode, WindowCandidate, WindowTarget } from "../lib/types";
 import { Modal } from "./ui";
+import { useI18n } from "../lib/i18n";
 
 /** Build the WindowTarget chosen from a live window. */
 export function targetFromCandidate(c: WindowCandidate, mode: TitleMatchMode): WindowTarget {
@@ -27,6 +28,7 @@ export function WindowPicker({
   const [selected, setSelected] = useState<WindowCandidate | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const { t } = useI18n();
 
   useEffect(() => {
     if (!open) return;
@@ -48,12 +50,12 @@ export function WindowPicker({
   if (!open) return null;
 
   return (
-    <Modal title="Select Target Window" onClose={onClose}>
+    <Modal title={t("selectTargetWindow")} onClose={onClose}>
       {error && <div className="error-banner">{error}</div>}
       <div className="row" style={{ marginBottom: 10, flex: "none" }}>
         <input
           className="input"
-          placeholder="Filter by title or process…"
+          placeholder={t("filterPlaceholder")}
           value={filter}
           onChange={(e) => setFilter(e.target.value)}
           autoFocus
@@ -62,13 +64,13 @@ export function WindowPicker({
           setLoading(true);
           api.listWindows().then(setWindows).finally(() => setLoading(false));
         }}>
-          Refresh
+          {t("refresh")}
         </button>
       </div>
       <div style={{ maxHeight: "44vh", overflowY: "auto" }}>
-        {loading && <div className="muted" style={{ padding: 12 }}>Loading windows…</div>}
+        {loading && <div className="muted" style={{ padding: 12 }}>{t("loadingWindows")}</div>}
         {!loading && filtered.length === 0 && (
-          <div className="muted" style={{ padding: 12 }}>No visible windows match.</div>
+          <div className="muted" style={{ padding: 12 }}>{t("noVisibleWindows")}</div>
         )}
         {filtered.map((w) => (
           <div
@@ -86,13 +88,13 @@ export function WindowPicker({
         ))}
       </div>
       <div className="row" style={{ marginTop: 14, flex: "none", justifyContent: "flex-end" }}>
-        <button className="btn" onClick={onClose}>Cancel</button>
+        <button className="btn" onClick={onClose}>{t("cancel")}</button>
         <button
           className="btn primary"
           disabled={!selected}
           onClick={() => selected && onPick(targetFromCandidate(selected, "contains"), selected)}
         >
-          Select
+          {t("select")}
         </button>
       </div>
     </Modal>
