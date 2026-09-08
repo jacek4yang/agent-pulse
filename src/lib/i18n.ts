@@ -37,6 +37,21 @@ export const STRINGS = {
   custom: { en: "Custom", zh: "自定义" },
   firesAt: { en: "Fires at", zh: "将于以下时间执行" },
   localTime: { en: "(local time)", zh: "（本地时间）" },
+  timezone: { en: "Timezone", zh: "时区" },
+  timeInputHint: {
+    en: "Type a time like 2026-09-08 13:26:05, or pick with the calendar.",
+    zh: "可直接键盘输入，如 2026-09-08 13:26:05、Sep 8th 2026 1:26 AM。",
+  },
+  invalidTimeFormat: {
+    en: "Unrecognized date/time — try 2026-09-08 13:26:05 or “Sep 8th 2026 1:26 AM”.",
+    zh: "无法识别的时间格式 —— 请尝试 2026-09-08 13:26:05 或 Sep 8th 2026 1:26 AM。",
+  },
+  utcEquivalent: { en: "UTC", zh: "UTC" },
+  localEquivalent: { en: "your local time", zh: "你的本地时间" },
+  unknownZoneWarning: {
+    en: "This zone will be validated by the scheduler when you start.",
+    zh: "该时区将在启动时由调度器校验。",
+  },
   actions: { en: "Actions", zh: "动作" },
   preset: { en: "Preset", zh: "预设" },
   customFlow: { en: "Custom flow", zh: "自定义流程" },

@@ -19,6 +19,9 @@ export function Editor({
   const [hours, setHours] = useState(task?.schedule?.kind === "after" ? task.schedule.hours : 5);
   const [minutes, setMinutes] = useState(task?.schedule?.kind === "after" ? task.schedule.minutes : 5);
   const [seconds, setSeconds] = useState(task?.schedule?.kind === "after" ? task.schedule.seconds : 0);
+  const [atZone, setAtZone] = useState(
+    task?.schedule?.kind === "at" ? task.schedule.timezone || "local" : "local",
+  );
   const [atValue, setAtValue] = useState(() => {
     const d = new Date(Date.now() + 3600_000);
     const p = (n: number) => String(n).padStart(2, "0");
@@ -48,6 +51,7 @@ export function Editor({
           hour: d.getHours(),
           minute: d.getMinutes(),
           second: 0,
+          timezone: atZone,
         };
       }
       case "every":
@@ -162,6 +166,20 @@ export function Editor({
               <span style={{ flex: "none", fontSize: 12 }}>{t("schedAt")}</span>
               <input className="input" type="datetime-local" step={1} value={atValue} onChange={(e) => setAtValue(e.target.value)} disabled={kind !== "at"} />
             </label>
+            <div className="row" style={{ gap: 8 }}>
+              <span style={{ flex: "none", fontSize: 12 }}>{t("timezone")}</span>
+              <input
+                className="input"
+                type="text"
+                list="agent-pulse-timezones"
+                value={atZone}
+                onChange={(e) => setAtZone(e.target.value)}
+                placeholder="local"
+                aria-label={t("timezone")}
+                disabled={kind !== "at"}
+                style={{ fontFamily: "ui-monospace, Consolas, monospace" }}
+              />
+            </div>
             <label className="row" style={{ gap: 8 }}>
               <input type="radio" checked={kind === "every"} onChange={() => setKind("every")} style={{ flex: "none" }} />
               <span style={{ flex: "none", fontSize: 12 }}>{t("schedEvery")}</span>

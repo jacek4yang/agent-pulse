@@ -8,7 +8,7 @@ export type TitleMatchMode = "exact" | "contains" | "regex" | "any";
 
 export type Schedule =
   | { kind: "after"; hours: number; minutes: number; seconds: number }
-  | { kind: "at"; year: number; month: number; day: number; hour: number; minute: number; second: number }
+  | { kind: "at"; year: number; month: number; day: number; hour: number; minute: number; second: number; timezone: string }
   | { kind: "every"; interval_seconds: number };
 
 export type Key =
