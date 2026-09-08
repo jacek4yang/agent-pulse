@@ -1,6 +1,6 @@
 [package]
 name = "agent-pulse"
-version = "0.1.1"
+version = "0.1.2"
 description = "A lightweight Windows automation scheduler for reliably resuming terminal-based AI coding agents."
 edition = "2024"
 
