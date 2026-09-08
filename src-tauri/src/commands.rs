@@ -295,9 +295,15 @@ fn describe_schedule(schedule: &crate::model::Schedule) -> String {
             hour,
             minute,
             second,
+            timezone,
         } => {
+            let tz = if timezone.is_empty() {
+                "local".to_string()
+            } else {
+                timezone.clone()
+            };
             format!(
-                "Automation — at {year:04}-{month:02}-{day:02} {hour:02}:{minute:02}:{second:02}"
+                "Automation — at {year:04}-{month:02}-{day:02} {hour:02}:{minute:02}:{second:02} ({tz})"
             )
         }
         crate::model::Schedule::Every { interval_seconds } => {

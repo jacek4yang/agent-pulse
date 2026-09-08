@@ -6,6 +6,10 @@ import { PRESETS, type Action, type Preset, type ScheduledTask, type Schedule, t
 import { Card, Empty, Field } from "../components/ui";
 import { WindowPicker, WindowIcon } from "../components/WindowPicker";
 import { ActionList } from "../components/ActionList";
+import {
+  COMMON_TIMEZONES, formatInZone, isTimezonePreviewable, parseDateTimeText,
+  zonedWallClockToUtc,
+} from "../lib/timetz";
 
 const TIME_PRESETS: { h: number; m: number; s: number; label: string }[] = [
   { h: 0, m: 30, s: 0, label: "30m" },
@@ -47,7 +51,8 @@ export function Dashboard({
   const [h, setH] = useState(5);
   const [m, setM] = useState(5);
   const [s, setS] = useState(0);
-  const [atValue, setAtValue] = useState(defaultAtValue);
+  const [atText, setAtText] = useState(defaultAtValue);
+  const [atZone, setAtZone] = useState("local");
   const [everyMin, setEveryMin] = useState(30);
   const [everySec, setEverySec] = useState(0);
 
@@ -63,10 +68,11 @@ export function Dashboard({
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
-  const atPreview = useMemo(() => {
-    const d = new Date(atValue);
-    return formatExactTimeLocal(d, lang);
-  }, [atValue, lang]);
+  const atParsed = useMemo(() => parseDateTimeText(atText), [atText]);
+  const atUtc = useMemo(
+    () => (atParsed ? zonedWallClockToUtc(atParsed, atZone) : null),
+    [atParsed, atZone],
+  );
 
   const buildSchedule = (): Schedule => {
     switch (schedMode) {
@@ -78,15 +84,18 @@ export function Dashboard({
         return { kind: "after", hours, minutes, seconds };
       }
       case "at": {
-        const d = new Date(atValue);
+        if (!atParsed) {
+          throw new Error(t("invalidTimeFormat"));
+        }
         return {
           kind: "at",
-          year: d.getFullYear(),
-          month: d.getMonth() + 1,
-          day: d.getDate(),
-          hour: d.getHours(),
-          minute: d.getMinutes(),
-          second: d.getSeconds(),
+          year: atParsed.year,
+          month: atParsed.month,
+          day: atParsed.day,
+          hour: atParsed.hour,
+          minute: atParsed.minute,
+          second: atParsed.second,
+          timezone: atZone,
         };
       }
       case "every":
@@ -126,6 +135,10 @@ export function Dashboard({
   const startAutomation = async () => {
     if (!target) {
       setError(t("selectTargetFirst"));
+      return;
+    }
+    if (schedMode === "at" && !atParsed) {
+      setError(t("invalidTimeFormat"));
       return;
     }
     setBusy(true);
@@ -205,17 +218,72 @@ export function Dashboard({
 
           {schedMode === "at" && (
             <>
-              <input
-                className="input"
-                type="datetime-local"
-                step={1}
-                value={atValue}
-                onChange={(e) => setAtValue(e.target.value)}
-                aria-label={t("schedAt")}
-              />
-              <div className="muted" style={{ marginTop: 5, fontSize: 12 }}>
-                {t("firesAt")} {atPreview} {t("localTime")}
+              <div className="row">
+                <input
+                  className="input"
+                  type="text"
+                  value={atText}
+                  onChange={(e) => setAtText(e.target.value)}
+                  placeholder="2026-09-08 13:26:05"
+                  aria-label={t("schedAt")}
+                  style={{ fontFamily: "ui-monospace, Consolas, monospace" }}
+                />
+                <input
+                  className="input"
+                  type="datetime-local"
+                  step={1}
+                  value={atParsed ? toPickerValue(atParsed) : ""}
+                  onChange={(e) => setAtText(e.target.value)}
+                  aria-label={`${t("schedAt")} (picker)`}
+                  title={t("timeInputHint")}
+                  style={{ flex: "none", width: 215 }}
+                />
               </div>
+              <div className="row" style={{ marginTop: 8 }}>
+                <input
+                  className="input"
+                  type="text"
+                  list="agent-pulse-timezones"
+                  value={atZone}
+                  onChange={(e) => setAtZone(e.target.value)}
+                  placeholder="local"
+                  aria-label={t("timezone")}
+                  style={{ fontFamily: "ui-monospace, Consolas, monospace" }}
+                />
+                <datalist id="agent-pulse-timezones">
+                  {COMMON_TIMEZONES.map((zone) => (
+                    <option key={zone} value={zone} />
+                  ))}
+                </datalist>
+              </div>
+              <div className="muted" style={{ marginTop: 5, fontSize: 12 }}>
+                {t("timeInputHint")}
+              </div>
+              {atParsed && atUtc ? (
+                <div className="muted" style={{ marginTop: 5, fontSize: 12 }}>
+                  {t("firesAt")} <strong>{formatExactTimeInZone(atParsed, lang)}</strong>
+                  {" · "}{atZone || "local"}
+                  {atZone !== "local" && isTimezonePreviewable(atZone) && (
+                    <>
+                      {" = "}
+                      {t("utcEquivalent")} {formatInZone(atUtc, "utc")}
+                      {" · "}
+                      {t("localEquivalent")} {formatInZone(atUtc, "local")}
+                    </>
+                  )}
+                </div>
+              ) : (
+                atText.trim() !== "" && (
+                  <div className="error-banner" style={{ marginTop: 8, marginBottom: 0 }}>
+                    {t("invalidTimeFormat")}
+                  </div>
+                )
+              )}
+              {!isTimezonePreviewable(atZone) && (
+                <div className="muted" style={{ marginTop: 5, fontSize: 12 }}>
+                  {t("unknownZoneWarning")}
+                </div>
+              )}
             </>
           )}
 
@@ -290,6 +358,16 @@ function presetLabel(p: Preset, lang: "en" | "zh"): string {
     empty_submit: ["Empty Submit", "空提交"],
   };
   return labels[p][lang === "zh" ? 1 : 0];
+}
+
+function toPickerValue(p: { year: number; month: number; day: number; hour: number; minute: number; second: number }): string {
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${p.year}-${pad(p.month)}-${pad(p.day)}T${pad(p.hour)}:${pad(p.minute)}:${pad(p.second)}`;
+}
+
+function formatExactTimeInZone(parsed: { year: number; month: number; day: number; hour: number; minute: number; second: number }, lang: "en" | "zh"): string {
+  const d = new Date(parsed.year, parsed.month - 1, parsed.day, parsed.hour, parsed.minute, parsed.second);
+  return formatExactTimeLocal(d, lang);
 }
 
 function formatExactTimeLocal(d: Date, lang: "en" | "zh"): string {

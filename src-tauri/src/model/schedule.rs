@@ -1,14 +1,21 @@
 //! Schedule model (spec §18). Schedules are declarative; the scheduler
 //! computes and persists absolute `next_run_at` timestamps.
 
+use std::str::FromStr;
 use std::time::Duration;
 
 use chrono::{
-    DateTime, Datelike, Duration as ChronoDuration, Local, LocalResult, TimeZone, Timelike, Utc,
+    DateTime, Datelike, Duration as ChronoDuration, FixedOffset, Local, LocalResult, TimeZone,
+    Timelike, Utc,
 };
 use serde::{Deserialize, Serialize};
 
 use crate::error::{AppError, AppResult};
+
+/// Default timezone for `Schedule::At` (system local zone).
+fn default_timezone() -> String {
+    "local".to_string()
+}
 
 /// How a task is scheduled.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -20,15 +27,20 @@ pub enum Schedule {
         minutes: u32,
         seconds: u32,
     },
-    /// Run once, at a specific local wall-clock time.
+    /// Run once, at a specific wall-clock time in a named timezone.
     At {
-        /// Local wall-clock components: (year, month, day, hour, minute, second)
+        /// Wall-clock components in `timezone`: (year, month, day, hour, minute, second)
         year: i32,
         month: u32,
         day: u32,
         hour: u32,
         minute: u32,
         second: u32,
+        /// IANA timezone name ("Asia/Shanghai"), "utc", or "local".
+        /// Defaults to "local" so schedules persisted before this field
+        /// existed keep their meaning (no migration needed).
+        #[serde(default = "default_timezone")]
+        timezone: String,
     },
     /// Run repeatedly at a fixed interval.
     Every {
@@ -60,6 +72,7 @@ impl Schedule {
                 hour,
                 minute,
                 second,
+                timezone,
             } => {
                 if !(1..=12).contains(month)
                     || !(1..=31).contains(day)
@@ -71,11 +84,12 @@ impl Schedule {
                         "invalid date/time components {year}-{month}-{day} {hour}:{minute}:{second}"
                     )));
                 }
-                let dt = Local.with_ymd_and_hms(*year, *month, *day, *hour, *minute, *second);
+                let tz = resolve_timezone(timezone)?;
+                let dt = tz.with_ymd_and_hms(*year, *month, *day, *hour, *minute, *second);
                 if matches!(dt, LocalResult::None) {
-                    return Err(AppError::InvalidSchedule(
-                        "date/time does not exist in the local timezone".into(),
-                    ));
+                    return Err(AppError::InvalidSchedule(format!(
+                        "date/time does not exist in timezone '{timezone}' (DST gap?)"
+                    )));
                 }
                 Ok(())
             }
@@ -111,12 +125,16 @@ impl Schedule {
                 hour,
                 minute,
                 second,
-            } => match Local.with_ymd_and_hms(*year, *month, *day, *hour, *minute, *second) {
-                LocalResult::Single(local) => Ok(local.with_timezone(&Utc)),
-                _ => Err(AppError::InvalidSchedule(
-                    "date/time does not exist in the local timezone".into(),
-                )),
-            },
+                timezone,
+            } => {
+                let tz = resolve_timezone(timezone)?;
+                match tz.with_ymd_and_hms(*year, *month, *day, *hour, *minute, *second) {
+                    LocalResult::Single(local) => Ok(local.with_timezone(&Utc)),
+                    _ => Err(AppError::InvalidSchedule(format!(
+                        "date/time does not exist in timezone '{timezone}' (DST gap?)"
+                    ))),
+                }
+            }
             Schedule::Every { interval_seconds } => Ok(from
                 + ChronoDuration::seconds(i64::try_from(*interval_seconds).unwrap_or(i64::MAX))),
         }
@@ -168,6 +186,81 @@ pub enum MisfirePolicy {
     RunImmediately,
     /// Skip the missed occurrence (recurring: jump to the next future slot).
     Skip,
+}
+
+/// A resolved timezone reference for `Schedule::At`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TzKind {
+    /// The machine's system timezone.
+    Local,
+    /// A fixed UTC offset (e.g. UTC+08:00).
+    Fixed(FixedOffset),
+    /// A named IANA zone (handles DST correctly).
+    Named(chrono_tz::Tz),
+}
+
+impl TzKind {
+    /// Resolve wall-clock components in this zone to a UTC instant.
+    pub fn with_ymd_and_hms(
+        &self,
+        year: i32,
+        month: u32,
+        day: u32,
+        hour: u32,
+        minute: u32,
+        second: u32,
+    ) -> LocalResult<DateTime<Utc>> {
+        match self {
+            TzKind::Local => Local
+                .with_ymd_and_hms(year, month, day, hour, minute, second)
+                .map(|dt| dt.with_timezone(&Utc)),
+            TzKind::Fixed(offset) => offset
+                .with_ymd_and_hms(year, month, day, hour, minute, second)
+                .map(|dt| dt.with_timezone(&Utc)),
+            TzKind::Named(tz) => tz
+                .with_ymd_and_hms(year, month, day, hour, minute, second)
+                .map(|dt| dt.with_timezone(&Utc)),
+        }
+    }
+}
+
+/// Resolve a timezone string: "local"/"" (system), "utc", fixed offsets
+/// like "UTC+8" / "GMT-05:30", or any IANA name ("Asia/Shanghai").
+pub fn resolve_timezone(name: &str) -> AppResult<TzKind> {
+    let n = name.trim();
+    if n.is_empty() || n.eq_ignore_ascii_case("local") || n.eq_ignore_ascii_case("system") {
+        return Ok(TzKind::Local);
+    }
+    if n.eq_ignore_ascii_case("utc") || n.eq_ignore_ascii_case("z") || n.eq_ignore_ascii_case("gmt")
+    {
+        return Ok(TzKind::Named(chrono_tz::UTC));
+    }
+    // Fixed offsets: UTC+8, GMT-05:30, +09:00 …
+    let offset_re =
+        regex::Regex::new(r"^(?:utc|gmt)?([+-])(\d{1,2})(?::?(\d{2}))?$").expect("static regex");
+    if let Some(caps) = offset_re.captures(&n.to_lowercase()) {
+        let sign: i32 = if &caps[1] == "-" { -1 } else { 1 };
+        let hours: i32 = caps[2].parse().unwrap_or(0);
+        let minutes: i32 = caps
+            .get(3)
+            .map(|m| m.as_str().parse().unwrap_or(0))
+            .unwrap_or(0);
+        if hours > 23 || minutes > 59 {
+            return Err(AppError::InvalidSchedule(format!(
+                "invalid UTC offset '{name}'"
+            )));
+        }
+        return FixedOffset::east_opt(sign * (hours * 3600 + minutes * 60))
+            .map(TzKind::Fixed)
+            .ok_or_else(|| AppError::InvalidSchedule(format!("invalid UTC offset '{name}'")));
+    }
+    chrono_tz::Tz::from_str(n)
+        .map(TzKind::Named)
+        .map_err(|_| {
+            AppError::InvalidSchedule(format!(
+                "unknown timezone '{name}' (use an IANA name like Asia/Shanghai, a UTC offset like UTC+8, or 'local')"
+            ))
+        })
 }
 
 /// Extract (year, month, day, hour, minute, second) from a local datetime.
@@ -280,6 +373,7 @@ mod tests {
                 hour: 9,
                 minute: 30,
                 second: 0,
+                timezone: "Asia/Shanghai".into(),
             },
         ] {
             let json = serde_json::to_string(&s).expect("test serialize");
@@ -291,5 +385,86 @@ mod tests {
     #[test]
     fn misfire_policy_defaults_to_run_immediately() {
         assert_eq!(MisfirePolicy::default(), MisfirePolicy::RunImmediately);
+    }
+
+    // --- timezone resolution ---
+
+    fn at(
+        year: i32,
+        month: u32,
+        day: u32,
+        hour: u32,
+        minute: u32,
+        second: u32,
+        timezone: &str,
+    ) -> Schedule {
+        Schedule::At {
+            year,
+            month,
+            day,
+            hour,
+            minute,
+            second,
+            timezone: timezone.into(),
+        }
+    }
+
+    #[test]
+    fn at_in_named_timezone_converts_to_utc() {
+        // 2026-09-08 01:26:05 Asia/Shanghai (UTC+8) == 2026-09-07T17:26:05Z
+        let s = at(2026, 9, 8, 1, 26, 5, "Asia/Shanghai");
+        let at = s.first_run_at(utc(0)).expect("test schedule");
+        assert_eq!(at, utc(1_788_801_965));
+    }
+
+    #[test]
+    fn at_utc_and_gmt_are_equivalent() {
+        let a = at(2026, 9, 8, 12, 0, 0, "utc")
+            .first_run_at(utc(0))
+            .expect("utc");
+        let b = at(2026, 9, 8, 12, 0, 0, "GMT")
+            .first_run_at(utc(0))
+            .expect("gmt");
+        assert_eq!(a, b);
+    }
+
+    #[test]
+    fn at_fixed_offset_parses() {
+        // UTC+8 matches Asia/Shanghai on a winter date (no DST either side).
+        let named = at(2026, 1, 15, 8, 0, 0, "Asia/Shanghai")
+            .first_run_at(utc(0))
+            .expect("named");
+        let fixed = at(2026, 1, 15, 8, 0, 0, "UTC+8")
+            .first_run_at(utc(0))
+            .expect("fixed");
+        assert_eq!(named, fixed);
+    }
+
+    #[test]
+    fn unknown_timezone_is_structured_error() {
+        let s = at(2026, 9, 8, 1, 0, 0, "Mars/Olympus");
+        assert!(matches!(s.validate(), Err(AppError::InvalidSchedule(_))));
+    }
+
+    #[test]
+    fn dst_gap_is_invalid_schedule() {
+        // 02:30 does not exist on the US spring-forward night (2026-03-08).
+        let s = at(2026, 3, 8, 2, 30, 0, "America/New_York");
+        assert!(matches!(
+            s.first_run_at(utc(0)),
+            Err(AppError::InvalidSchedule(_))
+        ));
+    }
+
+    #[test]
+    fn legacy_at_json_without_timezone_defaults_to_local() {
+        let json = r#"{"kind":"at","year":2026,"month":9,"day":8,"hour":1,"minute":26,"second":5}"#;
+        let s: Schedule = serde_json::from_str(json).expect("test deserialize");
+        match s {
+            Schedule::At { ref timezone, .. } => assert_eq!(timezone, "local"),
+            other => panic!("expected At, got {other:?}"),
+        }
+        // And it validates via the local zone.
+        assert!(s.validate().is_ok());
     }
 }
