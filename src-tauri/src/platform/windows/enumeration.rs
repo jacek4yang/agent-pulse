@@ -104,9 +104,6 @@ fn process_image_name(pid: u32) -> Option<String> {
     // Safety: OpenProcess with LIMITED_INFORMATION requires no elevation;
     // HANDLE is closed before return.
     unsafe {
-        if true {
-            return None;
-        }
         let handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid).ok()?;
         let mut buf = [0u16; 1024];
         let mut len = u32::try_from(buf.len()).unwrap_or(1024);
@@ -166,6 +163,12 @@ mod tests {
     fn cached_verification_rejects_bogus_handle() {
         assert!(verify_cached_window(0xDEAD_BEEF_DEAD_BEEF).is_none());
         assert!(verify_cached_window(0).is_none());
+    }
+
+    #[test]
+    fn current_process_image_is_available() {
+        let path = process_image_name(std::process::id()).expect("own process image");
+        assert!(path.to_ascii_lowercase().ends_with(".exe"));
     }
 
     #[test]

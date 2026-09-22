@@ -64,3 +64,18 @@ Multiple matches ⇒ `TargetAmbiguous`; zero ⇒ `TargetNotFound`. Never guess.
 Single JSON document `{ version, tasks, settings, history }` under the Tauri app-data
 directory. See `docs/DECISIONS.md` for why JSON (not SQLite) and `docs/DEVELOPMENT.md`
 for file semantics.
+
+## v0.2.0 execution/state update
+
+AppState loads without consuming deadlines, registers with Tauri, populates the live
+scheduler, then starts it. Scheduler reconciliation and user mutations share a
+transaction mutex (acquire before document/inner locks). Scheduler persistence runs
+before dispatch. Failed persistence leaves the occurrence armed. An execution worker
+uses run_task_once and the global guard; completion records history without replacing
+schedule/action state. Blocking Run Now and window queries use runtime blocking workers.
+
+Backends implement PlatformAutomation: Windows SendInput, macOS System Events, Linux
+X11/xdotool. Input methods receive the resolved target and check focus at their native
+injection boundary. Targets are always resolved against all current candidates.
+Single-instance startup prevents concurrent processes injecting or writing one store.
+See COMPATIBILITY.md for backend boundaries.

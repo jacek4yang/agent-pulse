@@ -1,80 +1,61 @@
 # Current Engineering Handoff
 
-> Rolling checkpoint. Update after every milestone, before session end, after opening
-> or merging PRs. Git holds history; this file holds CURRENT state only.
-
 ## Current milestone
+v0.2.0 reliability audit and Windows/macOS/Linux release, requested 2026-09-22.
 
-v0.1.1 (post-MVP fixes released)
+## Active work
+- Issue #45; branch `fix/45-enter-reliability`; PR #46 (validated; preparing squash merge).
+- Base main: 5afa1f2 / v0.1.2. Dependency PRs #40-44 are independent.
+- User specifically reported intermittent exits and unintended Enter while setting up.
+- User expanded platform scope to macOS/Linux.
 
-## Active Issue
+## Implemented
+- Pausing/editing/deleting cancels pending input, including during delays.
+- Windows partial input writes clean up this batch's held keys only while target remains foreground.
+- Single default Enter; physical Windows Enter/extended keys; modifier rejection;
+  repeated-key and text foreground checks; verified reacquisition; cached ambiguity fix.
+- Restored process lookup, matched executable path, rejected empty target resolution.
+- Shared execution guard and single app instance; async Run Now/window queries.
+- Startup recovery, original due timestamps, Skip-only loop, bounded reconcile,
+  checked schedule arithmetic, past-time rejection, no re-arm on ordinary edits.
+- Transactional memory/disk settings/history and save rollback; completion preserves
+  newer edits. Startup data errors stay visible without creating a writable empty store.
+- Wired tray/plugins, corrected Arc state, close-to-tray and minimized startup.
+- Editor preserves exact seconds/timezone; task failures surface on Run Now.
+- macOS System Events and Linux X11 backends. Native bundle/release CI matrix.
+- README, compatibility, release notes and regression docs updated.
 
-None (v0.1.1 released; next work = v0.2.0 per ROADMAP)
+## Verification checkpoint
+- Windows local: 101 Rust tests passed, clippy -D warnings passed, fmt check passed.
+- pnpm lint and build passed.
+- Local Windows NSIS/MSI build succeeded. Final source native CI also passed.
+- Windows Tk and Linux Xvfb/xterm Enter probes passed: exact text, one submission, no extra Enter.
+- Final source a0c9dce: CI run 35696978747 passed all jobs. Windows 101 tests; macOS/Linux 92 each. All five installer types built. This checkpoint-only commit reruns CI before merge.
 
-## Active branch
+## Known limits
+- No claim of universal terminal/OS manual testing. macOS needs Accessibility and
+  Automation permission and exactly one accessible target window. Linux needs X11,
+  an EWMH WM and xdotool; Wayland explicitly rejected.
+- Window targeting cannot identify terminal tabs/panes. Success means input accepted.
+- Unsigned Windows/macOS packages, no macOS notarization.
+- Existing explicit second Enter actions are preserved; review old tasks.
 
-main
+## Next actions
+Local gates and native CI are complete. Wait for checkpoint commit CI, then squash merge PR #46 only when green. Wait for green main CI, tag v0.2.0 (Release reuses that exact commit's CI artifacts), and verify five installer types
+plus actual SHA256SUMS after all release builds. Update this checkpoint before merge
+and after release. Do not move a published tag.
 
-## Active PR
+## Latest CI finding
+Checkpoint run 35723228506 failed Linux native input with TargetNotFound while the
+xterm window existed. Linux enumeration required readable /proc/PID/exe, which is
+not guaranteed for setgid terminals. Preserve candidates using PID/title and optional
+/proc/PID/comm when image paths are inaccessible; explicit path matching still fails
+closed. Smoke probe now builds before opening its receiver and logs WM/client state.
+Fix CI must pass before merge. No keyboard input was sent by the failed probe.
 
-None (release-prep PR merged; tag `v0.1.0` triggers `release.yml`)
-
-## Current commit
-
-See `git log --oneline -n 3`
-
-## Completed (v0.1.0, all via squash-merged PRs)
-
-- #5/#6 Foundation (PR #20) · #7 Persistence (PR #23) · #8 Scheduler (PR #22)
-- #9/#10/#11 Windows platform (PR #24) · #12/#13 Executor + SendInput (PR #25)
-- #14–#17 IPC + frontend (PR #26) · #18 Tray/notifications/autostart (PR #27)
-- Dependabot action bumps (PRs #1, #2, #4; pnpm/action-setup v6 applied in release PR)
-- 77 Rust unit tests; clippy `-D warnings` clean; fmt clean; pnpm lint/build clean;
-  full Tauri Windows build green in CI on every PR
-
-## Release procedure (executed)
-
-1. Release-prep PR (`feat/19-release`): pnpm/action-setup v6, ROADMAP check-off,
-   this file. Merged to main.
-2. `git tag v0.1.0 && git push origin v0.1.0` from the merged main commit.
-3. `release.yml` runs: Rust tests → `pnpm tauri build` → collects NSIS + MSI into
-   `release-artifacts/` → writes `SHA256SUMS.txt` → publishes GitHub Release with
-   generated notes.
-4. Verify the release page lists real artifacts only (never fake filenames).
-
-## Verification
-
-Last successful local commands:
-
-- `cargo fmt --all -- --check` ✓
-- `cargo clippy --workspace --all-targets --all-features -- -D warnings` ✓
-- `cargo test --workspace` ✓ 77 passed
-- `pnpm lint` ✓ / `pnpm build` ✓
-
-## v0.1.1 addenda
-
-- #29 (P0): commands requested `State<AppState>` while `Arc<AppState>` was managed —
-  every stateful command failed. All signatures now use `State<Arc<AppState>>`.
-- #30: Quick Automation supports After/At/Every with second precision and fully
-  custom action flows; `create_quick_task` takes any schedule + actions.
-- #32: full Chinese + English UI; language setting persisted in Settings.
-
-## Known problems / deferred
-
-- Manual interactive E2E suite (docs/TESTING.md: happy-path typing into a real
-  terminal, ambiguity negative test, restart/sleep recovery, tray persistence)
-  requires a human at the desktop; unit + CI coverage substitutes until run.
-  Tracked in issue #19 before tagging.
-- Release binaries are unsigned (SmartScreen may warn) — documented in
-  docs/SECURITY.md; signing is a v1.0.0 item.
-- Frontend `Notify` action currently emits `execution-notify` events; native
-  toast for in-sequence notifications lands with v0.2.0 polish.
-
-## Next exact actions (for the next agent)
-
-1. Confirm `release.yml` succeeded for tag `v0.1.0` and artifacts + checksums exist.
-2. If it failed: inspect `gh run list --workflow release.yml`, fix, re-tag
-   (delete failed draft release first, then `git push origin :refs/tags/v0.1.0`
-   and re-tag).
-3. Begin v0.2.0 per ROADMAP.md (first issue: sleep/resume recovery telemetry).
-4. Keep following the AGENTS.md loop: Issue → branch → PR → CI → squash merge.
+Follow-up diagnostics from run 35723672805 showed _NET_CLIENT_LIST was not yet
+present: Openbox startup/font initialization raced the disposable test window.
+The metadata fallback remains valid hardening, but was not sufficient for this
+failure. The smoke script now waits for WM readiness and for its exact window in
+the managed-client list before executing; xfonts-base is explicitly installed.
+Latest fix needs green CI. Production does not relax target matching to pass tests.

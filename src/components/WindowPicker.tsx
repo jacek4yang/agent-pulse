@@ -9,7 +9,7 @@ export function targetFromCandidate(c: WindowCandidate, mode: TitleMatchMode): W
   return {
     last_hwnd: c.hwnd,
     process_id: c.process_id,
-    process_name: c.process_name,
+    process_name: c.process_name || undefined,
     executable_path: c.executable_path,
     title: c.title,
     title_match_mode: mode,
@@ -33,6 +33,8 @@ export function WindowPicker({
   useEffect(() => {
     if (!open) return;
     setLoading(true);
+    setSelected(null);
+    setError(null);
     api
       .listWindows()
       .then(setWindows)
@@ -62,7 +64,9 @@ export function WindowPicker({
         />
         <button className="btn small" style={{ flex: "none" }} onClick={() => {
           setLoading(true);
-          api.listWindows().then(setWindows).finally(() => setLoading(false));
+          setSelected(null);
+          setError(null);
+          api.listWindows().then(setWindows).catch((e) => setError(errorMessage(e))).finally(() => setLoading(false));
         }}>
           {t("refresh")}
         </button>
@@ -74,9 +78,12 @@ export function WindowPicker({
         )}
         {filtered.map((w) => (
           <div
-            key={w.hwnd}
+            key={`${w.hwnd}-${w.title}`}
             className={`win-row${selected?.hwnd === w.hwnd ? " selected" : ""}`}
             onClick={() => setSelected(w)}
+            role="button"
+            tabIndex={0}
+            onKeyDown={(e) => { if (e.key === "Enter") onPick(targetFromCandidate(w, "contains"), w); }}
             onDoubleClick={() => onPick(targetFromCandidate(w, "contains"), w)}
           >
             <WindowIcon processName={w.process_name} />

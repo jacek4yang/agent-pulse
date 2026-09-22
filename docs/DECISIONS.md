@@ -68,3 +68,24 @@ tray menu terminates cleanly. Status: **settled**.
 
 The app uses documented, unprivileged APIs only (EnumWindows, SetForegroundWindow,
 SendInput, ShowWindow). Status: **settled**.
+
+## D13 — v0.2.0 reliability and platform corrections
+
+- All resolutions enumerate current candidates; a cached handle never bypasses
+  ambiguity. Executable path is part of matching.
+- Disabling focus-loss abort requests verified reacquisition; it never disables
+  foreground checks. Backends also check before each native input batch.
+- Default Continue submits once. Additional Enter is opt-in; text control characters
+  are invalid and absolute past times cannot be armed by saving a task.
+- A scheduler transaction gate serializes reconciliation and document mutations.
+  Persistence precedes execution dispatch and in-memory publication. Completion
+  only updates history/last-run, never copies an old task over newer edits.
+- Due snapshots retain their original due time; live startup performs reconciliation.
+  Skip tolerates up to two seconds of scheduling jitter. Wall-clock reconciliation
+  is bounded to one second for sleep/clock changes (no zero-time busy loop).
+- One application instance prevents duplicate schedulers and writers. Scheduled and
+  manual input share the same process-wide guard; competing runs fail explicitly.
+- macOS uses System Events with permissions and one accessible target window.
+  Linux uses X11/EWMH and xdotool; Wayland explicitly fails closed.
+- Releases include Windows x64, universal macOS and Linux x64 bundles only after all
+  native build jobs succeed. No universal manual compatibility claim is made.

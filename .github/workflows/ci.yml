@@ -1,14 +1,11 @@
 name: CI
-
 on:
   push:
     branches: [main]
   pull_request:
-
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
-
 jobs:
   frontend:
     name: Frontend lint & build
@@ -25,30 +22,30 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm lint
       - run: pnpm build
-
-  rust:
-    name: Rust fmt, clippy & tests
-    runs-on: windows-latest
-    defaults:
-      run:
-        working-directory: src-tauri
+  desktop:
+    name: Desktop (${{ matrix.platform }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: windows-x64
+            os: windows-latest
+            target: x86_64-pc-windows-msvc
+            bundles: nsis,msi
+          - platform: macos-universal
+            os: macos-15
+            target: universal-apple-darwin
+            bundles: app,dmg
+          - platform: linux-x64
+            os: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+            bundles: deb,appimage
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt, clippy
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: src-tauri
-      - run: cargo fmt --all -- --check
-      - run: cargo clippy --workspace --all-targets --all-features -- -D warnings
-      - run: cargo test --workspace
-
-  tauri-build:
-    name: Full Tauri Windows build
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@v7
+      - name: Linux build dependencies
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf xdotool libxdo-dev libfuse2 xvfb openbox xterm xfonts-base
       - uses: pnpm/action-setup@v6
         with:
           version: 11
@@ -57,10 +54,38 @@ jobs:
           node-version: 22
           cache: pnpm
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - name: macOS universal targets
+        if: runner.os == 'macOS'
+        run: rustup target add aarch64-apple-darwin x86_64-apple-darwin
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri
       - run: pnpm install --frozen-lockfile
-      - run: pnpm tauri build
+      - run: cargo fmt --all -- --check
+        working-directory: src-tauri
+      - run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+        working-directory: src-tauri
+      - run: cargo test --workspace --locked
+        working-directory: src-tauri
+      - name: Isolated Windows native Enter smoke test
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./scripts/windows-smoke.ps1
+      - name: Isolated Linux terminal Enter smoke test
+        if: runner.os == 'Linux'
+        run: xvfb-run -a bash scripts/linux-smoke.sh
+      - run: pnpm tauri build --target ${{ matrix.target }} --bundles "${{ matrix.bundles }}"
         env:
-          TAURI_SIGNING_PRIVATE_KEY: ""
+          NO_STRIP: 'true'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: desktop-${{ matrix.platform }}
+          path: |
+            src-tauri/target/${{ matrix.target }}/release/bundle/**/*.exe
+            src-tauri/target/${{ matrix.target }}/release/bundle/**/*.msi
+            src-tauri/target/${{ matrix.target }}/release/bundle/**/*.dmg
+            src-tauri/target/${{ matrix.target }}/release/bundle/**/*.deb
+            src-tauri/target/${{ matrix.target }}/release/bundle/**/*.AppImage
+          if-no-files-found: error

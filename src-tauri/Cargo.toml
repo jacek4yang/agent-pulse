@@ -1,6 +1,6 @@
 [package]
 name = "agent-pulse"
-version = "0.1.2"
+version = "0.2.0"
 description = "A lightweight Windows automation scheduler for reliably resuming terminal-based AI coding agents."
 edition = "2024"
 
@@ -13,6 +13,7 @@ tauri-build = { version = "2.6", features = [] }
 
 [dependencies]
 tauri = { version = "2.11", features = ["tray-icon"] }
+tauri-plugin-single-instance = "2"
 tauri-plugin-notification = "2.4"
 tauri-plugin-autostart = "2.5"
 chrono = { version = "0.4", features = ["serde"] }
@@ -37,3 +38,6 @@ windows = { version = "0.62", features = [
 strip = true
 lto = true
 codegen-units = 1
+
+[target.'cfg(target_os = "linux")'.dependencies]
+x11rb = "0.13"

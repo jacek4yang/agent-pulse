@@ -98,8 +98,10 @@ impl JsonStore {
     pub fn load(&self) -> AppResult<StoreDocument> {
         match self.read_document(&self.path) {
             Ok(doc) => Ok(doc),
+            Err(error @ AppError::UnsupportedStoreVersion(_)) => Err(error),
             Err(main_err) => match self.read_document(&self.backup_path()) {
                 Ok(doc) => Ok(doc),
+                Err(error @ AppError::UnsupportedStoreVersion(_)) => Err(error),
                 Err(_backup_err) => {
                     // Missing main file on first run is normal — defaults.
                     if !self.path.exists() {
@@ -125,9 +127,7 @@ impl JsonStore {
                 AppError::PersistenceFailure("store document has no version field".into())
             })?;
         if version > u64::from(SCHEMA_VERSION) {
-            return Err(AppError::PersistenceFailure(format!(
-                "store schema version {version} is newer than supported version {SCHEMA_VERSION}"
-            )));
+            return Err(AppError::UnsupportedStoreVersion(version));
         }
         let migrated = migrate(value, u32::try_from(version).unwrap_or(0))?;
         serde_json::from_value(migrated)
@@ -312,7 +312,10 @@ mod tests {
         )
         .expect("test write");
         let store = JsonStore::new(path);
-        assert!(matches!(store.load(), Err(AppError::PersistenceFailure(_))));
+        assert!(matches!(
+            store.load(),
+            Err(AppError::UnsupportedStoreVersion(99))
+        ));
         fs::remove_dir_all(&dir).ok();
     }
 

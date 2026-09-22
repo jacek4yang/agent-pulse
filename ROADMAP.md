@@ -24,7 +24,15 @@
 - [x] CI (fmt, clippy, tests, frontend lint/build, full Tauri Windows build)
 - [x] Release pipeline (MSI + NSIS + checksums) and v0.1.0 GitHub Release
 
-## v0.2.0 — Reliability
+## v0.2.0 — Reliability and desktop compatibility
+
+- [x] Safe repeated Enter, physical Windows key events and modifier rejection
+- [x] Transactional settings/history, startup recovery and edit re-arm fixes
+- [x] Single instance, global execution guard, responsive manual execution
+- [x] macOS System Events and Linux X11 backends with explicit capability errors
+- [x] Native build/release matrix for Windows, macOS and Linux
+
+### Remaining reliability work
 
 - Improved sleep/resume recovery telemetry
 - Target re-resolution diagnostics (why a target did/didn't match)

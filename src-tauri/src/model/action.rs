@@ -30,6 +30,51 @@ pub enum Action {
     Notify { message: String },
 }
 
+impl Action {
+    pub fn validate(&self) -> crate::error::AppResult<()> {
+        use crate::error::AppError;
+        let valid_key = |key: &Key| match key {
+            Key::Letter(c) => c.is_ascii_alphabetic(),
+            Key::Digit(d) => *d <= 9,
+            Key::Function(n) => (1..=12).contains(n),
+            _ => true,
+        };
+        let valid = match self {
+            // Control characters could submit a command during a text step.
+            // Require an explicit PressKey action for every Enter/Tab instead.
+            Self::TypeText { text } => text.len() <= 16384 && !text.chars().any(char::is_control),
+            Self::PressKey {
+                key,
+                count,
+                interval_ms,
+            } => {
+                valid_key(key)
+                    && key.as_modifier().is_none()
+                    && (1..=1000).contains(count)
+                    && *interval_ms <= 60000
+            }
+            Self::KeyCombination { keys } => {
+                !keys.is_empty()
+                    && keys.len() <= 8
+                    && keys.iter().all(valid_key)
+                    && keys.iter().any(|key| key.as_modifier().is_none())
+                    && keys
+                        .iter()
+                        .enumerate()
+                        .all(|(i, key)| !keys[..i].contains(key))
+            }
+            Self::Delay { milliseconds } => *milliseconds <= 3600000,
+            Self::Notify { message } => message.len() <= 16384,
+            Self::FocusTarget | Self::RestoreTarget => true,
+        };
+        if valid {
+            Ok(())
+        } else {
+            Err(AppError::InvalidAction("invalid key/count/delay, oversized text, or control character in text; use an explicit PressKey for Enter".into()))
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

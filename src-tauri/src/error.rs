@@ -25,17 +25,31 @@ pub enum AppError {
     #[error("target lost focus during execution; input aborted")]
     TargetLostFocus,
     /// A SendInput (or equivalent) call failed.
-    #[error("keyboard input injection failed")]
+    #[error(
+        "keyboard input injection failed; keep the target unlocked and at the same privilege level as Agent Pulse"
+    )]
     InputInjectionFailed,
+    #[error("release Shift, Ctrl, Alt and Windows/Command keys before running automation")]
+    ModifierKeyHeld,
+    #[error("automation unavailable: {0}")]
+    AutomationUnavailable(String),
+    #[error("invalid action: {0}")]
+    InvalidAction(String),
+    #[error("application state unavailable: {0}")]
+    StateUnavailable(String),
     /// A schedule description is invalid (e.g. zero interval, past deadline).
     #[error("invalid schedule: {0}")]
     InvalidSchedule(String),
+    #[error("store schema version {0} is newer than this application supports")]
+    UnsupportedStoreVersion(u64),
     /// Persistence layer failed (read/write/corruption without fallback).
     #[error("persistence failure: {0}")]
     PersistenceFailure(String),
     /// The task is disabled and cannot run.
     #[error("task is disabled")]
     TaskDisabled,
+    #[error("task was paused, edited or deleted; remaining input cancelled")]
+    TaskCancelled,
     /// Another task is already executing a sequence.
     #[error("another task execution is already running")]
     ExecutionAlreadyRunning,
@@ -57,8 +71,14 @@ impl AppError {
             AppError::FailedToActivateTarget => "FailedToActivateTarget",
             AppError::TargetLostFocus => "TargetLostFocus",
             AppError::InputInjectionFailed => "InputInjectionFailed",
+            AppError::ModifierKeyHeld => "ModifierKeyHeld",
+            AppError::AutomationUnavailable(_) => "AutomationUnavailable",
+            AppError::InvalidAction(_) => "InvalidAction",
+            AppError::StateUnavailable(_) => "StateUnavailable",
             AppError::InvalidSchedule(_) => "InvalidSchedule",
+            AppError::UnsupportedStoreVersion(_) => "UnsupportedStoreVersion",
             AppError::PersistenceFailure(_) => "PersistenceFailure",
+            AppError::TaskCancelled => "TaskCancelled",
             AppError::TaskDisabled => "TaskDisabled",
             AppError::ExecutionAlreadyRunning => "ExecutionAlreadyRunning",
             AppError::TaskNotFound(_) => "TaskNotFound",

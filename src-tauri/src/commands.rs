@@ -7,17 +7,20 @@ use uuid::Uuid;
 
 use crate::app_state::{AppState, events};
 use crate::error::{AppError, AppResult};
-use crate::executor::run_task_once;
 use crate::model::{
-    Action, ExecutionOutcome, HistoryRecord, ScheduledTask, Settings, TitleMatchMode,
-    WindowCandidate, WindowTarget,
+    Action, HistoryRecord, ScheduledTask, Settings, TitleMatchMode, WindowCandidate, WindowTarget,
 };
 use crate::platform::matching::resolve_target;
 use crate::store::bound_history;
 
 #[tauri::command]
-pub fn list_tasks(state: State<Arc<AppState>>) -> Vec<ScheduledTask> {
-    state.doc.lock().expect("doc mutex").tasks.clone()
+pub fn get_startup_error(state: State<crate::StartupStatus>) -> Option<String> {
+    state.inner().0.clone()
+}
+
+#[tauri::command]
+pub fn list_tasks(state: State<Arc<AppState>>) -> AppResult<Vec<ScheduledTask>> {
+    Ok(state.lock_doc()?.tasks.clone())
 }
 
 #[tauri::command]
@@ -44,12 +47,10 @@ pub fn create_task(
         misfire_policy,
         now,
     )?;
-    {
-        let mut doc = state.doc.lock().expect("doc mutex");
+    state.update_doc(|doc| {
         doc.tasks.push(task.clone());
-        state.store.save(&doc)?;
-    }
-    state.sync_scheduler();
+        Ok(())
+    })?;
     state.emit_task_event(&app, events::TASK_CREATED, &task);
     Ok(task)
 }
@@ -60,40 +61,30 @@ pub fn update_task(
     state: State<Arc<AppState>>,
     task: ScheduledTask,
 ) -> AppResult<ScheduledTask> {
-    let now = chrono::Utc::now();
-    let mut task = task;
-    task.updated_at = now;
-    // Re-arm relative schedules from now on edit.
-    if matches!(task.schedule, crate::model::Schedule::After { .. }) || task.next_run_at.is_none() {
-        task.rearm(now)?;
-    }
-    {
-        let mut doc = state.doc.lock().expect("doc mutex");
+    task.validate()?;
+    let task = state.update_doc(|doc| {
         let existing = doc
             .tasks
             .iter_mut()
             .find(|t| t.id == task.id)
             .ok_or(AppError::TaskNotFound(task.id))?;
-        *existing = task.clone();
-        state.store.save(&doc)?;
-    }
-    state.sync_scheduler();
+        existing.apply_edit(task.clone(), chrono::Utc::now())?;
+        Ok(existing.clone())
+    })?;
     state.emit_task_event(&app, events::TASK_UPDATED, &task);
     Ok(task)
 }
 
 #[tauri::command]
 pub fn delete_task(app: AppHandle, state: State<Arc<AppState>>, task_id: Uuid) -> AppResult<()> {
-    {
-        let mut doc = state.doc.lock().expect("doc mutex");
+    state.update_doc(|doc| {
         let before = doc.tasks.len();
         doc.tasks.retain(|t| t.id != task_id);
         if doc.tasks.len() == before {
             return Err(AppError::TaskNotFound(task_id));
         }
-        state.store.save(&doc)?;
-    }
-    state.sync_scheduler();
+        Ok(())
+    })?;
     let _ = app.emit(events::SCHEDULER_UPDATED, ());
     Ok(())
 }
@@ -105,8 +96,7 @@ pub fn set_task_enabled(
     task_id: Uuid,
     enabled: bool,
 ) -> AppResult<ScheduledTask> {
-    let task = {
-        let mut doc = state.doc.lock().expect("doc mutex");
+    let task = state.update_doc(|doc| {
         let task = doc
             .tasks
             .iter_mut()
@@ -119,105 +109,78 @@ pub fn set_task_enabled(
         if !enabled {
             task.next_run_at = None;
         }
-        task.clone()
-    };
-    state.store.update(|doc| {
-        if let Some(t) = doc.tasks.iter_mut().find(|t| t.id == task_id) {
-            t.enabled = task.enabled;
-            t.next_run_at = task.next_run_at;
-        }
-        Ok(())
+        task.updated_at = chrono::Utc::now();
+        Ok(task.clone())
     })?;
-    state.sync_scheduler();
     state.emit_task_event(&app, events::TASK_UPDATED, &task);
     Ok(task)
 }
 
-/// Run a task immediately, bypassing the schedule. Synchronous: the command
-/// returns once the sequence finished (or failed). Uses the same global
-/// execution lock as scheduled runs.
+/// Blocking platform operations run off the UI thread.
 #[tauri::command]
-pub fn run_task_now(
+pub async fn run_task_now(
     app: AppHandle,
-    state: State<Arc<AppState>>,
+    state: State<'_, Arc<AppState>>,
     task_id: Uuid,
 ) -> AppResult<HistoryRecord> {
-    let settings = state.doc.lock().expect("doc mutex").settings.clone();
-    let mut task = {
-        let doc = state.doc.lock().expect("doc mutex");
-        doc.tasks
-            .iter()
-            .find(|t| t.id == task_id)
-            .cloned()
-            .ok_or(AppError::TaskNotFound(task_id))?
-    };
-    let scheduled_at = task.next_run_at.unwrap_or_else(chrono::Utc::now);
-    let record = run_task_once(
-        state.automation.as_ref(),
-        &mut task,
-        &settings,
-        scheduled_at,
-        &|_| {},
-    )?;
-
-    // Persist updated task state + history.
-    {
-        let mut doc = state.doc.lock().expect("doc mutex");
-        if let Some(t) = doc.tasks.iter_mut().find(|t| t.id == task_id) {
-            t.last_run_at = task.last_run_at;
-            t.target.last_hwnd = task.target.last_hwnd;
-        }
-        doc.history.push(record.clone());
-        let limit = doc.settings.history_limit;
-        bound_history(&mut doc.history, limit);
-        state.store.save(&doc)?;
-    }
-    state.sync_scheduler();
-
-    let success = matches!(record.outcome, ExecutionOutcome::Success);
-    let _ = if success {
-        app.emit(events::TASK_COMPLETED, &record)
-    } else {
-        app.emit(events::TASK_FAILED, &record)
-    };
-    Ok(record)
+    let state = Arc::clone(state.inner());
+    let task = state
+        .lock_doc()?
+        .tasks
+        .iter()
+        .find(|t| t.id == task_id)
+        .cloned()
+        .ok_or(AppError::TaskNotFound(task_id))?;
+    tauri::async_runtime::spawn_blocking(move || state.execute_and_record(&app, task))
+        .await
+        .map_err(|e| AppError::StateUnavailable(e.to_string()))?
 }
 
 #[tauri::command]
-pub fn list_windows() -> Vec<WindowCandidate> {
-    crate::platform::windows::enumerate_visible_windows()
+pub async fn list_windows(state: State<'_, Arc<AppState>>) -> AppResult<Vec<WindowCandidate>> {
+    let platform = Arc::clone(&state.automation);
+    tauri::async_runtime::spawn_blocking(move || {
+        platform.check_available()?;
+        Ok(platform.enumerate())
+    })
+    .await
+    .map_err(|e| AppError::StateUnavailable(e.to_string()))?
 }
 
 /// Validate a window target: resolve against live windows WITHOUT touching
 /// the window. Returns the resolved candidate; ambiguity/not-found surface
 /// as structured errors.
 #[tauri::command]
-pub fn test_window_target(
-    state: State<Arc<AppState>>,
+pub async fn test_window_target(
+    state: State<'_, Arc<AppState>>,
     target: WindowTarget,
 ) -> AppResult<WindowCandidate> {
-    let _ = state; // reserved for future logging hooks
-    let candidates = crate::platform::windows::enumerate_visible_windows();
-    resolve_target(&candidates, &target)
+    let platform = Arc::clone(&state.automation);
+    tauri::async_runtime::spawn_blocking(move || {
+        platform.check_available()?;
+        resolve_target(&platform.enumerate(), &target)
+    })
+    .await
+    .map_err(|e| AppError::StateUnavailable(e.to_string()))?
 }
 
 #[tauri::command]
-pub fn get_history(state: State<Arc<AppState>>) -> Vec<HistoryRecord> {
-    let doc = state.doc.lock().expect("doc mutex");
-    doc.history.iter().rev().cloned().collect()
+pub fn get_history(state: State<Arc<AppState>>) -> AppResult<Vec<HistoryRecord>> {
+    let doc = state.lock_doc()?;
+    Ok(doc.history.iter().rev().cloned().collect())
 }
 
 #[tauri::command]
 pub fn clear_history(state: State<Arc<AppState>>) -> AppResult<()> {
-    state.store.update(|doc| {
+    state.update_doc(|doc| {
         doc.history.clear();
         Ok(())
     })
 }
 
 #[tauri::command]
-pub fn get_settings(state: State<Arc<AppState>>) -> Settings {
-    state.doc.lock().expect("doc mutex").settings.clone()
+pub fn get_settings(state: State<Arc<AppState>>) -> AppResult<Settings> {
+    Ok(state.lock_doc()?.settings.clone())
 }
 
 #[tauri::command]
@@ -226,11 +189,12 @@ pub fn update_settings(
     state: State<Arc<AppState>>,
     settings: Settings,
 ) -> AppResult<()> {
-    state.store.update(|doc| {
+    apply_autostart(&app, settings.start_with_windows)?;
+    state.update_doc(|doc| {
         doc.settings = settings.clone();
+        bound_history(&mut doc.history, settings.history_limit);
         Ok(())
-    })?;
-    apply_autostart(&app, settings.start_with_windows)
+    })
 }
 
 /// Reflect the start-with-Windows preference via the autostart plugin
@@ -238,7 +202,9 @@ pub fn update_settings(
 fn apply_autostart(app: &AppHandle, enabled: bool) -> AppResult<()> {
     use tauri_plugin_autostart::ManagerExt;
     let autostart = app.autolaunch();
-    let current = autostart.is_enabled().unwrap_or(false);
+    let current = autostart
+        .is_enabled()
+        .map_err(|e| AppError::PersistenceFailure(e.to_string()))?;
     if enabled && !current {
         autostart.enable().map_err(|e| {
             AppError::PersistenceFailure(format!("failed to enable autostart: {e}"))

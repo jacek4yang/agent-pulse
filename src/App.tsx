@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { api, subscribeToEvents } from "./lib/api";
+import { api, errorMessage, subscribeToEvents } from "./lib/api";
 import type { HistoryRecord, ScheduledTask, Settings } from "./lib/types";
 import { DEFAULT_SETTINGS } from "./lib/types";
 import { I18nContext, resolveLanguage, translate, type StringKey } from "./lib/i18n";
@@ -17,17 +17,20 @@ export default function App() {
   const [history, setHistory] = useState<HistoryRecord[]>([]);
   const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
   const [editing, setEditing] = useState<ScheduledTask | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [editorOpen, setEditorOpen] = useState(false);
 
   const refresh = useCallback(async () => {
-    const [t, h, s] = await Promise.all([
-      api.listTasks().catch(() => []),
-      api.getHistory().catch(() => []),
-      api.getSettings().catch(() => DEFAULT_SETTINGS),
-    ]);
-    setTasks(t);
-    setHistory(h);
-    setSettings(s);
+    try {
+      const startupError = await api.getStartupError();
+      if (startupError) throw new Error(startupError);
+      const [t, h, s] = await Promise.all([api.listTasks(), api.getHistory(), api.getSettings()]);
+      setTasks(t);
+      setHistory(h);
+      setSettings(s);
+      setLoadError(null);
+    } catch (error) { setLoadError(errorMessage(error)); }
+
   }, []);
 
   useEffect(() => {
@@ -38,7 +41,7 @@ export default function App() {
       onSchedulerUpdated: () => api.listTasks().then(setTasks).catch(() => {}),
     });
     return () => {
-      unsubs.then((fns) => fns.forEach((u) => u()));
+      unsubs.then((fns) => fns.forEach((u) => u())).catch((e) => setLoadError(errorMessage(e)));
     };
   }, [refresh]);
 
@@ -59,6 +62,11 @@ export default function App() {
       t: (key: StringKey) => translate(lang, key),
     };
   }, [settings.language]);
+
+  if (loadError) {
+    return <main className="main"><div className="error-banner" role="alert">{loadError}</div>
+      <button className="btn" onClick={refresh}>{i18n.t("refresh")}</button></main>;
+  }
 
   if (editorOpen) {
     return (

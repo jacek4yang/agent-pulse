@@ -9,14 +9,14 @@ use std::time::Duration;
 
 use chrono::{DateTime, Utc};
 
-use crate::error::AppResult;
+use crate::error::{AppError, AppResult};
 use crate::model::{MisfirePolicy, Schedule, ScheduledTask};
 
 use super::clock::Clock;
 
 /// Longest the engine sleeps when no task is scheduled (periodic reconcile
 /// against wall-clock changes such as system clock adjustments).
-const IDLE_RECONCILE: Duration = Duration::from_secs(15 * 60);
+const IDLE_RECONCILE: Duration = Duration::from_secs(1);
 
 /// Outcome computed for one task during a reconcile pass.
 #[derive(Debug, Clone, PartialEq)]
@@ -45,7 +45,10 @@ pub fn decide(task: &ScheduledTask, now: DateTime<Utc>) -> Decision {
     }
     // Overdue: apply the misfire policy (spec §19).
     match task.misfire_policy {
-        MisfirePolicy::Skip => Decision::SkipOverdue,
+        MisfirePolicy::Skip if now.signed_duration_since(next) > chrono::Duration::seconds(2) => {
+            Decision::SkipOverdue
+        }
+        MisfirePolicy::Skip => Decision::Fire,
         MisfirePolicy::RunImmediately => Decision::Fire,
     }
 }
@@ -86,16 +89,20 @@ pub fn reconcile(tasks: &mut [ScheduledTask], now: DateTime<Utc>) -> ReconcileRe
             Decision::SkipOverdue => {
                 // Jump recurring tasks to their next future slot; clear
                 // one-shot schedules entirely.
-                let scheduled = task.next_run_at.expect("overdue implies next_run_at");
+                let Some(scheduled) = task.next_run_at else {
+                    continue;
+                };
                 task.next_run_at = compute_next_run(task, scheduled, now).ok().flatten();
                 report.skipped.push(task.clone());
             }
             Decision::Fire => {
-                let scheduled = task.next_run_at.expect("overdue implies next_run_at");
-                task.last_run_at = Some(now);
-                task.next_run_at = compute_next_run(task, scheduled, now)
-                    .expect("schedule validated at fire time");
+                let Some(scheduled) = task.next_run_at else {
+                    continue;
+                };
+                // Preserve the actual due slot in the execution snapshot.
                 report.fire.push(task.clone());
+                task.last_run_at = Some(now);
+                task.next_run_at = compute_next_run(task, scheduled, now).ok().flatten();
             }
         }
     }
@@ -103,7 +110,7 @@ pub fn reconcile(tasks: &mut [ScheduledTask], now: DateTime<Utc>) -> ReconcileRe
 }
 
 type FireCallback = dyn Fn(ScheduledTask) + Send + Sync;
-type UpdateCallback = dyn Fn(&[ScheduledTask]) + Send + Sync;
+type UpdateCallback = dyn Fn(&[ScheduledTask]) -> AppResult<()> + Send + Sync;
 
 struct Inner {
     tasks: Vec<ScheduledTask>,
@@ -114,6 +121,9 @@ struct Inner {
 /// The live scheduler. Owns a dedicated thread; task mutations go through
 /// `replace_tasks` which wakes the loop immediately.
 pub struct Scheduler {
+    /// Serializes command transactions with reconcile + persistence. Always
+    /// acquire before doc/inner; callbacks must not re-enter transactions.
+    transaction: Mutex<()>,
     inner: Arc<(Mutex<Inner>, Condvar)>,
     clock: Arc<dyn Clock>,
     on_fire: Arc<FireCallback>,
@@ -133,6 +143,7 @@ impl Scheduler {
         on_update: Arc<UpdateCallback>,
     ) -> Arc<Self> {
         Arc::new(Self {
+            transaction: Mutex::new(()),
             inner: Arc::new((
                 Mutex::new(Inner {
                     tasks: Vec::new(),
@@ -148,10 +159,16 @@ impl Scheduler {
         })
     }
 
+    pub fn transaction(&self) -> AppResult<std::sync::MutexGuard<'_, ()>> {
+        self.transaction
+            .lock()
+            .map_err(|e| AppError::StateUnavailable(e.to_string()))
+    }
+
     /// Replace the managed task list and wake the loop.
     pub fn replace_tasks(&self, tasks: Vec<ScheduledTask>) {
         let (lock, cvar) = &*self.inner;
-        let mut inner = lock.lock().expect("scheduler mutex poisoned");
+        let mut inner = lock.lock().unwrap_or_else(|e| e.into_inner());
         inner.tasks = tasks;
         cvar.notify_all();
     }
@@ -160,7 +177,7 @@ impl Scheduler {
     /// `next_run_at` values are retained.
     pub fn set_paused(&self, paused: bool) {
         let (lock, cvar) = &*self.inner;
-        let mut inner = lock.lock().expect("scheduler mutex poisoned");
+        let mut inner = lock.lock().unwrap_or_else(|e| e.into_inner());
         inner.paused = paused;
         cvar.notify_all();
     }
@@ -169,86 +186,85 @@ impl Scheduler {
         self.inner
             .0
             .lock()
-            .expect("scheduler mutex poisoned")
+            .unwrap_or_else(|e| e.into_inner())
             .paused
     }
 
     /// Start the scheduler thread.
-    pub fn start(self: &Arc<Self>) {
+    pub fn start(self: &Arc<Self>) -> AppResult<()> {
         let me = Arc::clone(self);
         let handle = std::thread::Builder::new()
             .name("agent-pulse-scheduler".into())
             .spawn(move || me.run_loop())
-            .expect("spawn scheduler thread");
-        *self.thread.lock().expect("thread handle mutex") = Some(handle);
+            .map_err(|e| AppError::StateUnavailable(format!("spawn scheduler: {e}")))?;
+        *self.thread.lock().unwrap_or_else(|e| e.into_inner()) = Some(handle);
+        Ok(())
     }
 
     /// Signal shutdown and join the thread.
     pub fn stop(&self) {
         {
             let (lock, cvar) = &*self.inner;
-            let mut inner = lock.lock().expect("scheduler mutex poisoned");
+            let mut inner = lock.lock().unwrap_or_else(|e| e.into_inner());
             inner.running = false;
             cvar.notify_all();
         }
-        if let Some(handle) = self.thread.lock().expect("thread handle mutex").take() {
+        if let Some(handle) = self.thread.lock().unwrap_or_else(|e| e.into_inner()).take() {
             let _ = handle.join();
         }
     }
 
     fn run_loop(self: Arc<Self>) {
         let (lock, cvar) = &*self.inner;
-        let mut inner = lock.lock().expect("scheduler mutex poisoned");
         loop {
+            let Ok(transaction) = self.transaction() else {
+                return;
+            };
+            let mut inner = lock.lock().unwrap_or_else(|e| e.into_inner());
             if !inner.running {
                 return;
             }
             let now = self.clock.now();
-            let has_due =
-                !inner.paused && inner.tasks.iter().any(|t| decide(t, now) == Decision::Fire);
-
-            if has_due {
-                // Mutate the owned task list via the pure reconcile, then fire
-                // callbacks outside the lock so handlers may call back into
-                // the scheduler without deadlocking.
-                let mut tasks = std::mem::take(&mut inner.tasks);
+            if !inner.paused {
+                let mut tasks = inner.tasks.clone();
                 let report = reconcile(&mut tasks, now);
-                inner.tasks = tasks;
-                let fired = report.fire;
-                let changed = !fired.is_empty() || !report.skipped.is_empty();
-                let snapshot = if changed {
-                    Some(inner.tasks.clone())
-                } else {
-                    None
-                };
-                drop(inner);
-                for task in fired {
-                    (self.on_fire)(task);
+                if !report.fire.is_empty() || !report.skipped.is_empty() {
+                    drop(inner);
+                    // Persist BEFORE emitting execution. A failed save leaves the
+                    // occurrence armed, so the next pass can retry without typing.
+                    let persisted = (self.on_update)(&tasks);
+                    inner = lock.lock().unwrap_or_else(|e| e.into_inner());
+                    if persisted.is_ok() {
+                        inner.tasks = tasks;
+                        drop(inner);
+                        for task in report.fire {
+                            (self.on_fire)(task);
+                        }
+                        inner = lock.lock().unwrap_or_else(|e| e.into_inner());
+                    } else if let Err(error) = persisted {
+                        eprintln!("scheduler persistence failed: {error}");
+                    }
                 }
-                if let Some(snapshot) = snapshot {
-                    (self.on_update)(&snapshot);
-                }
-                inner = lock.lock().expect("scheduler mutex poisoned");
-                continue;
             }
-
+            // Bound wall-clock reconciliation after resume or clock changes.
             let wait = if inner.paused {
                 IDLE_RECONCILE
             } else {
                 inner
                     .tasks
                     .iter()
+                    .filter(|t| t.enabled)
                     .filter_map(|t| t.next_run_at)
                     .min()
-                    .map(|at| (at - now).to_std().unwrap_or(Duration::ZERO))
+                    .map(|at| (at - self.clock.now()).to_std().unwrap_or(IDLE_RECONCILE))
                     .map(|d| d.min(IDLE_RECONCILE))
                     .unwrap_or(IDLE_RECONCILE)
             };
-
+            drop(transaction);
             let (guard, _) = cvar
                 .wait_timeout(inner, wait)
-                .expect("scheduler mutex poisoned");
-            inner = guard;
+                .unwrap_or_else(|e| e.into_inner());
+            drop(guard);
         }
     }
 }
@@ -435,9 +451,55 @@ mod tests {
         )];
         let report = reconcile(&mut tasks, utc(125));
         assert_eq!(report.fire.len(), 1);
+        assert_eq!(report.fire[0].next_run_at, Some(utc(60)));
         let t = &tasks[0];
         assert_eq!(t.last_run_at, Some(utc(125)));
         assert_eq!(t.next_run_at, Some(utc(180)));
+    }
+
+    #[test]
+    fn skip_policy_runs_on_time_but_skips_missed_deadlines() {
+        let t = task(
+            "skip",
+            Schedule::Every {
+                interval_seconds: 60,
+            },
+            MisfirePolicy::Skip,
+            Some(utc(60)),
+            true,
+        );
+        assert_eq!(decide(&t, utc(60)), Decision::Fire);
+        assert_eq!(decide(&t, utc(61)), Decision::Fire);
+        assert_eq!(decide(&t, utc(63)), Decision::SkipOverdue);
+    }
+
+    #[test]
+    fn skip_only_live_engine_persists_without_firing() {
+        let (tx, rx) = std::sync::mpsc::channel();
+        let scheduler = Scheduler::new(
+            super::super::clock::test_clock::TestClock::at(2000),
+            Arc::new(|_| panic!("skipped task must not fire")),
+            Arc::new(move |tasks| {
+                let _ = tx.send(tasks[0].next_run_at);
+                Ok(())
+            }),
+        );
+        scheduler.replace_tasks(vec![task(
+            "skip",
+            Schedule::After {
+                hours: 0,
+                minutes: 0,
+                seconds: 1,
+            },
+            MisfirePolicy::Skip,
+            Some(utc(60)),
+            true,
+        )]);
+        scheduler.start().expect("start");
+        let received = rx.recv_timeout(Duration::from_secs(2));
+        scheduler.stop();
+        assert_eq!(received.expect("updated skipped task"), None);
+        assert!(rx.try_recv().is_err());
     }
 
     #[test]
@@ -579,6 +641,7 @@ mod tests {
             }),
             Arc::new(move |tasks| {
                 let _ = update_tx.send(tasks.len());
+                Ok(())
             }),
         );
         // Overdue one-shot scheduled long before "now" (restart recovery).
@@ -593,7 +656,7 @@ mod tests {
             Some(utc(100)),
             true,
         )]);
-        scheduler.start();
+        scheduler.start().expect("start");
         let fired = fire_rx
             .recv_timeout(Duration::from_secs(2))
             .expect("task should fire promptly");
@@ -614,7 +677,7 @@ mod tests {
             Arc::new(move |t| {
                 let _ = fire_tx.send(t);
             }),
-            Arc::new(|_| {}),
+            Arc::new(|_| Ok(())),
         );
         scheduler.set_paused(true);
         scheduler.replace_tasks(vec![task(
@@ -628,7 +691,7 @@ mod tests {
             Some(utc(100)),
             true,
         )]);
-        scheduler.start();
+        scheduler.start().expect("start");
         assert!(fire_rx.recv_timeout(Duration::from_millis(300)).is_err());
         scheduler.stop();
     }

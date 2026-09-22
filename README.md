@@ -1,59 +1,79 @@
 # Agent Pulse
 
-A lightweight Windows automation scheduler for reliably resuming terminal-based AI coding agents.
+Schedule a keyboard sequence against a specific foreground application window.
+The Rust scheduler supports delays, exact times with timezones, recurring tasks,
+and persisted deadlines across restarts.
 
-Agent Pulse schedules **keyboard action sequences** that run against a **specific Windows window** at a chosen time. Its flagship use case: when a CLI AI agent (Codex CLI, Claude Code, …) pauses because a usage limit was exhausted, Agent Pulse can wait — e.g. 5 hours — then bring the terminal back to the foreground and type `continue` + Enter for you.
+## v0.2.0
 
-## Primary use case
+- **One Enter by default**: Continue types `continue` and submits once. Double Enter
+  and Continue + Confirm remain explicit choices. Existing task actions are preserved.
+- Foreground checks before each repeated key and during text entry; no input on
+  ambiguous targets or failed activation. Held modifiers abort instead of changing
+  Enter into Shift/Ctrl/Alt+Enter.
+- Pause/edit/delete cancels pending input, including during delays.
+- One application instance and one executing sequence. Concurrent attempts report
+  `ExecutionAlreadyRunning` in history instead of interleaving keyboard input.
+- Fixed startup recovery, task edits re-arming completed tasks, schedule overflow,
+  settings/history persistence, tray state and blocking Run Now commands.
+- Windows, macOS and Linux X11 backends and installers. See the boundaries below.
 
-```
-After 5h 5m:
-  1. Activate Windows Terminal (the window running your agent)
-  2. Type "continue"
-  3. Press Enter
-  4. Wait 1000 ms
-  5. Press Enter   (confirm any follow-up prompt)
-```
+## Downloads and compatibility
 
-## Features (v0.1.0)
+Get installers and `SHA256SUMS.txt` from [GitHub Releases](https://github.com/jacek4yang/agent-pulse/releases).
 
-- **Scheduler in Rust** — relative (`after 5h 5m`), absolute (`at …`), and recurring (`every 30 minutes`) schedules, persisted as real timestamps; survives restarts and reconciles missed runs after sleep/hibernate
-- **Window targeting** — pick any visible top-level window (title, process name, PID, icon); matches by process and title (exact / contains / regex); richer identity is persisted, never just an HWND
-- **Safety model** — input is injected only after the target is verified foreground; ambiguous targets abort; execution aborts if the target loses focus mid-sequence; one sequence at a time globally
-- **Action sequences** — `Focus`, `Restore`, `TypeText`, `PressKey`, `KeyCombination`, `Delay`, `Notify`, executed strictly in order; fully user-editable
-- **Presets** — Continue, Continue + Confirm (default), Confirm + Continue, Double Enter, Empty Submit
-- **Unicode typing** — via `SendInput` keyboard events; never touches your clipboard
-- **Persistence** — schema-versioned JSON with atomic writes, corruption detection and recovery
-- **System tray** — hides to tray, scheduling continues; notifications for success/failure
-- **History** — bounded execution history with structured errors and durations
+| Platform | Package | Requirements / scope |
+| --- | --- | --- |
+| Windows 10/11 x64 | NSIS `.exe` or `.msi` | Interactive unlocked desktop; WebView2; target at equal or lower privilege level |
+| macOS 11+ Intel / Apple Silicon | Universal `.dmg` | Accessibility and Automation permission for System Events; exactly one accessible window in the target application |
+| Linux x64 | `.deb` or `.AppImage` | X11/Xorg with an EWMH window manager and `xdotool`; built on Ubuntu 22.04 |
 
-## Safety model
+Wayland, Windows 7/8, locked/secure desktops and detached remote sessions are not
+supported automation environments. macOS/Linux are new backends: build and unit
+coverage does not establish compatibility with every terminal or desktop.
+Windows and macOS downloads are unsigned/not notarized.
 
-Agent Pulse injects keyboard input only after verifying that the **intended target window is the foreground window**. If the target cannot be resolved uniquely, cannot be activated, or loses focus during a sequence, execution aborts before any further input is sent. Ambiguity never resolves to a guess.
+On Linux, install `xdotool` (the Debian package declares this dependency). AppImage
+users also need their distribution's FUSE compatibility runtime. On macOS, allow
+Agent Pulse to control System Events under System Settings > Privacy & Security >
+Automation and Accessibility. Permission denial is an error, not a successful run.
 
-## Limitations
+## Use
 
-- Agent Pulse v0.1.0 does **not** semantically inspect terminal output — it runs deterministic action sequences, not screen-reading logic. (ConPTY-based agent inspection is a roadmap item.)
-- Windows only.
-- Release binaries are not code-signed.
+1. Open the terminal and select the correct tab/pane. Agent Pulse targets a **window**;
+   it cannot identify a terminal's active tab, pane, prompt or editor focus.
+2. Select that target in Agent Pulse and set a future deadline.
+3. Choose Continue (one Enter), or explicitly configure other actions.
+4. Save. Use History for errors and actual execution timestamps.
+
+The target must be available and unlocked at execution time. Avoid typing or changing
+focus while a sequence runs. A successful history record means the input API accepted
+the sequence; it cannot prove an AI agent resumed or a command completed.
+
+Text actions reject control characters, including CR/LF: add explicit Enter actions.
+Selecting a window or testing a target does not inject input. Saving an absolute time
+in the past is rejected. Editing only a name/action preserves the existing deadline.
+Changing a schedule intentionally re-arms it. Pause tasks before changing their setup
+if an already scheduled deadline could occur while editing.
 
 ## Development
 
 ```bash
-pnpm install
+pnpm install --frozen-lockfile
 pnpm tauri dev
-
-pnpm lint && pnpm build
-cargo fmt --check
+pnpm lint
+pnpm build
+cd src-tauri
+cargo fmt --all -- --check
 cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo test --workspace
 ```
 
-See [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) and [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+CI builds Windows NSIS/MSI, a universal macOS DMG, and Linux DEB/AppImage. Publication
+waits for every platform and includes SHA-256 hashes for the actual installers.
 
-## Roadmap
-
-See [ROADMAP.md](ROADMAP.md).
+See [testing](docs/TESTING.md), [compatibility](docs/COMPATIBILITY.md),
+[architecture](docs/ARCHITECTURE.md), [handoff](docs/HANDOFF.md), and [roadmap](ROADMAP.md).
 
 ## License
 

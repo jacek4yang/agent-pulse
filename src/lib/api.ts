@@ -16,6 +16,7 @@ async function call<T>(command: string, args?: Record<string, unknown>): Promise
 }
 
 export const api = {
+  getStartupError: () => call<string | null>("get_startup_error"),
   listTasks: () => call<ScheduledTask[]>("list_tasks"),
   createTask: (input: {
     name: string;

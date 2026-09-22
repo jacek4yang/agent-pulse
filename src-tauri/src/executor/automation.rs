@@ -13,6 +13,10 @@ use crate::model::{Key, WindowCandidate};
 ///   into whatever is focused; the executor therefore verifies the foreground
 ///   window before every meaningful input step.
 pub trait PlatformAutomation: Send + Sync {
+    /// Fail with an actionable diagnostic before enumeration/input if unavailable.
+    fn check_available(&self) -> AppResult<()> {
+        Ok(())
+    }
     /// All visible top-level windows.
     fn enumerate(&self) -> Vec<WindowCandidate>;
     /// Verify a cached HWND and refresh its identity, if still valid.
@@ -24,9 +28,9 @@ pub trait PlatformAutomation: Send + Sync {
     /// Is the given window currently the foreground window?
     fn is_foreground(&self, raw_hwnd: u64) -> bool;
     /// Type Unicode text as keyboard events. Never uses the clipboard.
-    fn type_text(&self, text: &str) -> AppResult<()>;
+    fn type_text(&self, raw_hwnd: u64, text: &str) -> AppResult<()>;
     /// Press a key `count` times with an interval between presses.
-    fn press_key(&self, key: Key, count: u32, interval_ms: u64) -> AppResult<()>;
+    fn press_key(&self, raw_hwnd: u64, key: Key, count: u32, interval_ms: u64) -> AppResult<()>;
     /// Press a key combination with press-and-hold semantics.
-    fn press_combination(&self, keys: &[Key]) -> AppResult<()>;
+    fn press_combination(&self, raw_hwnd: u64, keys: &[Key]) -> AppResult<()>;
 }

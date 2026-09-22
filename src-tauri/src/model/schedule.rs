@@ -86,7 +86,7 @@ impl Schedule {
                 }
                 let tz = resolve_timezone(timezone)?;
                 let dt = tz.with_ymd_and_hms(*year, *month, *day, *hour, *minute, *second);
-                if matches!(dt, LocalResult::None) {
+                if !matches!(dt, LocalResult::Single(_)) {
                     return Err(AppError::InvalidSchedule(format!(
                         "date/time does not exist in timezone '{timezone}' (DST gap?)"
                     )));
@@ -94,9 +94,9 @@ impl Schedule {
                 Ok(())
             }
             Schedule::Every { interval_seconds } => {
-                if *interval_seconds == 0 {
+                if *interval_seconds == 0 || *interval_seconds > 315360000 {
                     return Err(AppError::InvalidSchedule(
-                        "recurring interval must be greater than zero".into(),
+                        "recurring interval must be between 1 second and 10 years".into(),
                     ));
                 }
                 Ok(())
@@ -116,7 +116,8 @@ impl Schedule {
                 let d = ChronoDuration::hours(i64::from(*hours))
                     + ChronoDuration::minutes(i64::from(*minutes))
                     + ChronoDuration::seconds(i64::from(*seconds));
-                Ok(from + d)
+                from.checked_add_signed(d)
+                    .ok_or_else(|| AppError::InvalidSchedule("date overflow".into()))
             }
             Schedule::At {
                 year,
@@ -129,14 +130,18 @@ impl Schedule {
             } => {
                 let tz = resolve_timezone(timezone)?;
                 match tz.with_ymd_and_hms(*year, *month, *day, *hour, *minute, *second) {
-                    LocalResult::Single(local) => Ok(local.with_timezone(&Utc)),
+                    LocalResult::Single(local) if local > from => Ok(local.with_timezone(&Utc)),
+                    LocalResult::Single(_) => Err(AppError::InvalidSchedule(
+                        "choose a future time; past times are not executed on save".into(),
+                    )),
                     _ => Err(AppError::InvalidSchedule(format!(
                         "date/time does not exist in timezone '{timezone}' (DST gap?)"
                     ))),
                 }
             }
-            Schedule::Every { interval_seconds } => Ok(from
-                + ChronoDuration::seconds(i64::try_from(*interval_seconds).unwrap_or(i64::MAX))),
+            Schedule::Every { interval_seconds } => from
+                .checked_add_signed(ChronoDuration::seconds(*interval_seconds as i64))
+                .ok_or_else(|| AppError::InvalidSchedule("date overflow".into())),
         }
     }
 
@@ -151,15 +156,16 @@ impl Schedule {
         self.validate()?;
         match self {
             Schedule::Every { interval_seconds } => {
-                let step = i64::try_from(*interval_seconds).unwrap_or(i64::MAX);
-                // Advance in whole steps from the scheduled time until we are
-                // strictly in the future relative to `now`. This handles the
-                // sleep-like large time jump without drift accumulation.
-                let mut next = scheduled + ChronoDuration::seconds(step);
-                while next <= now {
-                    next += ChronoDuration::seconds(step);
-                }
-                Ok(next)
+                let step = *interval_seconds as i64;
+                let elapsed = now.signed_duration_since(scheduled).num_seconds().max(0);
+                let seconds = (elapsed / step + 1)
+                    .checked_mul(step)
+                    .ok_or_else(|| AppError::InvalidSchedule("interval overflow".into()))?;
+                let delta = ChronoDuration::try_seconds(seconds)
+                    .ok_or_else(|| AppError::InvalidSchedule("interval overflow".into()))?;
+                scheduled
+                    .checked_add_signed(delta)
+                    .ok_or_else(|| AppError::InvalidSchedule("date overflow".into()))
             }
             // One-shot schedules have no next occurrence.
             Schedule::After { .. } | Schedule::At { .. } => Err(AppError::InvalidSchedule(
@@ -319,6 +325,34 @@ mod tests {
             interval_seconds: 0,
         };
         assert!(matches!(s.validate(), Err(AppError::InvalidSchedule(_))));
+    }
+
+    #[test]
+    fn oversized_interval_is_rejected_without_panicking() {
+        assert!(
+            Schedule::Every {
+                interval_seconds: u64::MAX
+            }
+            .first_run_at(utc(0))
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn decades_of_missed_seconds_advance_in_constant_time() {
+        let s = Schedule::Every {
+            interval_seconds: 1,
+        };
+        assert_eq!(
+            s.next_after(utc(0), utc(2_000_000_000)).expect("next"),
+            utc(2_000_000_001)
+        );
+    }
+
+    #[test]
+    fn past_absolute_time_is_not_executed_when_saved() {
+        let s = at(2020, 1, 1, 0, 0, 0, "utc");
+        assert!(s.first_run_at(utc(2_000_000_000)).is_err());
     }
 
     #[test]
