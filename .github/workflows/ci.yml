@@ -5,7 +5,7 @@ on:
   pull_request:
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: true
 jobs:
   frontend:
     name: Frontend lint & build
@@ -45,7 +45,7 @@ jobs:
       - uses: actions/checkout@v7
       - name: Linux build dependencies
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf xdotool libxdo-dev libfuse2 xvfb openbox xterm
+        run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf xdotool libxdo-dev libfuse2 xvfb openbox xterm xfonts-base
       - uses: pnpm/action-setup@v6
         with:
           version: 11

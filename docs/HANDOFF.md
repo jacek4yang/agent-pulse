@@ -52,3 +52,10 @@ not guaranteed for setgid terminals. Preserve candidates using PID/title and opt
 /proc/PID/comm when image paths are inaccessible; explicit path matching still fails
 closed. Smoke probe now builds before opening its receiver and logs WM/client state.
 Fix CI must pass before merge. No keyboard input was sent by the failed probe.
+
+Follow-up diagnostics from run 35723672805 showed _NET_CLIENT_LIST was not yet
+present: Openbox startup/font initialization raced the disposable test window.
+The metadata fallback remains valid hardening, but was not sufficient for this
+failure. The smoke script now waits for WM readiness and for its exact window in
+the managed-client list before executing; xfonts-base is explicitly installed.
+Latest fix needs green CI. Production does not relax target matching to pass tests.
