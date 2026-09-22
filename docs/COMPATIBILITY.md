@@ -1,4 +1,4 @@
-﻿# Compatibility and verification scope
+# Compatibility and verification scope
 
 ## Supported execution environments
 
@@ -30,6 +30,9 @@ eliminate OS/application behavior outside this process.
   timestamp preservation, scheduler recovery/Skip and transactional state updates.
 - Windows tests inspect event construction and query process identity. They do not
   inject keyboard input into a developer's desktop.
+- CI run 35696978747: Windows 101 tests, macOS/Linux 92 each, all native builds passed.
+  Dedicated isolated Windows Tk and Linux Xvfb/xterm probes confirmed exact text and
+  a single Enter submission with no extra submission over two seconds.
 
 Manual Windows 10/11 terminal, macOS Accessibility, Linux X11 desktop, suspend/resume
 and installer-upgrade checks remain environment-dependent. Build success must never

@@ -4,7 +4,7 @@
 v0.2.0 reliability audit and Windows/macOS/Linux release, requested 2026-09-22.
 
 ## Active work
-- Issue #45; branch `fix/45-enter-reliability`; PR #46 (draft).
+- Issue #45; branch `fix/45-enter-reliability`; PR #46 (validated; preparing squash merge).
 - Base main: 5afa1f2 / v0.1.2. Dependency PRs #40-44 are independent.
 - User specifically reported intermittent exits and unintended Enter while setting up.
 - User expanded platform scope to macOS/Linux.
@@ -28,9 +28,9 @@ v0.2.0 reliability audit and Windows/macOS/Linux release, requested 2026-09-22.
 ## Verification checkpoint
 - Windows local: 101 Rust tests passed, clippy -D warnings passed, fmt check passed.
 - pnpm lint and build passed.
-- Local Windows NSIS/MSI build succeeded. Final source changes will be rebuilt by CI.
-- Added isolated Linux Xvfb/xterm and Windows Tk Enter probes; Linux initial smoke passed; Windows and final source CI pending.
-- Final cancellation/partial-input cleanup: local fmt, clippy and 101 tests passed.
+- Local Windows NSIS/MSI build succeeded. Final source native CI also passed.
+- Windows Tk and Linux Xvfb/xterm Enter probes passed: exact text, one submission, no extra Enter.
+- Final source a0c9dce: CI run 35696978747 passed all jobs. Windows 101 tests; macOS/Linux 92 each. All five installer types built. This checkpoint-only commit reruns CI before merge.
 
 ## Known limits
 - No claim of universal terminal/OS manual testing. macOS needs Accessibility and
@@ -41,7 +41,6 @@ v0.2.0 reliability audit and Windows/macOS/Linux release, requested 2026-09-22.
 - Existing explicit second Enter actions are preserved; review old tasks.
 
 ## Next actions
-Finish local gates, open PR, inspect all native CI including Linux real Enter smoke,
-fix failures, squash merge only green CI. Wait for green main CI, tag v0.2.0 (Release reuses that exact commit's CI artifacts), and verify five installer types
+Local gates and native CI are complete. Wait for checkpoint commit CI, then squash merge PR #46 only when green. Wait for green main CI, tag v0.2.0 (Release reuses that exact commit's CI artifacts), and verify five installer types
 plus actual SHA256SUMS after all release builds. Update this checkpoint before merge
 and after release. Do not move a published tag.
