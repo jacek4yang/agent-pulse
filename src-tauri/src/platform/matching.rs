@@ -9,13 +9,25 @@ fn process_matches(candidate: &WindowCandidate, target: &WindowTarget) -> bool {
     let name_ok = target
         .process_name
         .as_deref()
+        .filter(|s| !s.is_empty())
         .map(|want| candidate.process_name.eq_ignore_ascii_case(want))
         .unwrap_or(true);
     let pid_ok = target
         .process_id
         .map(|want| candidate.process_id == want)
         .unwrap_or(true);
-    name_ok && pid_ok
+    let path_ok = target.executable_path.as_deref().is_none_or(|want| {
+        candidate.executable_path.as_deref().is_some_and(|actual| {
+            if cfg!(windows) {
+                actual
+                    .replace('/', "\\")
+                    .eq_ignore_ascii_case(&want.replace('/', "\\"))
+            } else {
+                actual == want
+            }
+        })
+    });
+    name_ok && pid_ok && path_ok
 }
 
 /// Does one candidate satisfy the title criteria for the given match mode?
@@ -47,9 +59,20 @@ pub fn resolve_target(
     candidates: &[WindowCandidate],
     target: &WindowTarget,
 ) -> AppResult<WindowCandidate> {
+    if target.process_id.is_none()
+        && target.process_name.as_deref().is_none_or(str::is_empty)
+        && target.executable_path.as_deref().is_none_or(str::is_empty)
+        && (target.title_match_mode == TitleMatchMode::Any
+            || target.title.as_deref().is_none_or(str::is_empty))
+    {
+        return Err(AppError::TargetNotFound);
+    }
     let mut matched: Vec<&WindowCandidate> = Vec::new();
     for candidate in candidates {
-        if process_matches(candidate, target) && title_matches(candidate, target)? {
+        if candidate.is_visible
+            && process_matches(candidate, target)
+            && title_matches(candidate, target)?
+        {
             matched.push(candidate);
         }
     }

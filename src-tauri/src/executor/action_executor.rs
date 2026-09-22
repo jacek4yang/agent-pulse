@@ -9,7 +9,7 @@
 //! 4. Any verification or input failure aborts with a structured error.
 
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use chrono::{DateTime, Utc};
 use uuid::Uuid;
@@ -69,28 +69,7 @@ fn resolve_target_for_task(
     platform: &dyn PlatformAutomation,
     task: &mut ScheduledTask,
 ) -> AppResult<ResolvedTarget> {
-    // 1. Verify the cached HWND (HWNDs get invalidated/recycled — D4).
-    if let Some(raw) = task.target.last_hwnd {
-        if let Some(candidate) = platform.verify_cached(raw) {
-            if crate::platform::matching::resolve_target(
-                std::slice::from_ref(&candidate),
-                &task.target,
-            )
-            .is_ok()
-            {
-                return Ok(ResolvedTarget {
-                    description: describe(&candidate),
-                    raw_hwnd: candidate.hwnd,
-                });
-            }
-            // Cached window no longer matches criteria (title changed etc.);
-            // fall through to full resolution.
-        } else {
-            task.target.last_hwnd = None;
-        }
-    }
-
-    // 2. Full resolution from enumeration.
+    // Always enumerate: a cached HWND must never hide a second matching window.
     let candidates = platform.enumerate();
     let candidate: WindowCandidate = resolve_target(&candidates, &task.target)?;
     task.target.last_hwnd = Some(candidate.hwnd);
@@ -154,6 +133,8 @@ fn run_sequence(
     settings: &Settings,
     notify: &dyn Fn(&str),
 ) -> AppResult<String> {
+    task.validate()?;
+    platform.check_available()?;
     let target = resolve_target_for_task(platform, task)?;
 
     // Restore + activate + verify BEFORE any input (D6). Failure here means
@@ -163,24 +144,28 @@ fn run_sequence(
 
     for action in &task.actions {
         // Focus re-verification before meaningful input steps (spec §30).
-        if settings.abort_on_focus_loss
-            && action_is_input(action)
-            && !platform.is_foreground(target.raw_hwnd)
-        {
-            return Err(AppError::TargetLostFocus);
+        if action_is_input(action) {
+            ensure_foreground(platform, target.raw_hwnd, settings)?;
         }
         match action {
             Action::FocusTarget => platform.activate(target.raw_hwnd)?,
             Action::RestoreTarget => platform.restore(target.raw_hwnd),
-            Action::TypeText { text } => platform.type_text(text)?,
+            Action::TypeText { text } => platform.type_text(target.raw_hwnd, text)?,
             Action::PressKey {
                 key,
                 count,
                 interval_ms,
-            } => platform.press_key(*key, *count, *interval_ms)?,
-            Action::KeyCombination { keys } => platform.press_combination(keys)?,
+            } => {
+                for i in 0..*count {
+                    ensure_foreground(platform, target.raw_hwnd, settings)?;
+                    platform.press_key(target.raw_hwnd, *key, 1, 0)?;
+                    if i + 1 < *count && *interval_ms > 0 {
+                        std::thread::sleep(Duration::from_millis(*interval_ms));
+                    }
+                }
+            }
+            Action::KeyCombination { keys } => platform.press_combination(target.raw_hwnd, keys)?,
             Action::Delay { milliseconds } => {
-                let started = Instant::now();
                 let ms = (*milliseconds).min(u64::from(u32::MAX));
                 std::thread::sleep(Duration::from_millis(ms));
                 // Long delays: the user may have switched apps meanwhile.
@@ -190,12 +175,28 @@ fn run_sequence(
                 {
                     return Err(AppError::TargetLostFocus);
                 }
-                let _ = started;
             }
             Action::Notify { message } => notify(message),
         }
     }
     Ok(target.description)
+}
+
+fn ensure_foreground(
+    platform: &dyn PlatformAutomation,
+    hwnd: u64,
+    settings: &Settings,
+) -> AppResult<()> {
+    if !platform.is_foreground(hwnd) {
+        if settings.abort_on_focus_loss {
+            return Err(AppError::TargetLostFocus);
+        }
+        platform.activate(hwnd)?;
+        if !platform.is_foreground(hwnd) {
+            return Err(AppError::TargetLostFocus);
+        }
+    }
+    Ok(())
 }
 
 fn action_is_input(action: &Action) -> bool {
@@ -331,7 +332,7 @@ pub(crate) mod mock {
             }
         }
 
-        fn type_text(&self, text: &str) -> AppResult<()> {
+        fn type_text(&self, _hwnd: u64, text: &str) -> AppResult<()> {
             if self.fail_input {
                 return Err(AppError::InputInjectionFailed);
             }
@@ -342,7 +343,7 @@ pub(crate) mod mock {
             Ok(())
         }
 
-        fn press_key(&self, key: Key, count: u32, _interval_ms: u64) -> AppResult<()> {
+        fn press_key(&self, _hwnd: u64, key: Key, count: u32, _interval_ms: u64) -> AppResult<()> {
             if self.fail_input {
                 return Err(AppError::InputInjectionFailed);
             }
@@ -353,7 +354,7 @@ pub(crate) mod mock {
             Ok(())
         }
 
-        fn press_combination(&self, keys: &[Key]) -> AppResult<()> {
+        fn press_combination(&self, _hwnd: u64, keys: &[Key]) -> AppResult<()> {
             if self.fail_input {
                 return Err(AppError::InputInjectionFailed);
             }
@@ -458,7 +459,7 @@ mod tests {
     }
 
     #[test]
-    fn cached_hwnd_is_verified_first_without_enumeration() {
+    fn cached_hwnd_is_resolved_against_current_candidates() {
         let windows = vec![terminal_window(42, "Codex — rust-reality")];
         let platform = MockPlatform::new(windows);
         let mut task = continue_task(contains_target(), vec![Action::FocusTarget]);
@@ -521,6 +522,63 @@ mod tests {
     }
 
     #[test]
+    fn cached_target_does_not_hide_ambiguity() {
+        let platform = MockPlatform::new(vec![
+            terminal_window(42, "Codex"),
+            terminal_window(43, "Codex"),
+        ]);
+        let mut task = continue_task(contains_target(), continue_actions());
+        task.target.last_hwnd = Some(42);
+        let outcome = execute_task(&platform, &mut task, &Settings::default(), &|_| {});
+        assert!(
+            matches!(outcome, ExecutionOutcome::Failure { error_code, .. } if error_code == "TargetAmbiguous")
+        );
+        assert!(platform.recorded().is_empty());
+    }
+
+    #[test]
+    fn repeated_enter_rechecks_focus_between_presses() {
+        let mut platform = MockPlatform::new(vec![terminal_window(42, "Codex")]);
+        platform.lose_focus_after = Some(2);
+        let mut task = continue_task(
+            contains_target(),
+            vec![Action::PressKey {
+                key: Key::Enter,
+                count: 3,
+                interval_ms: 1,
+            }],
+        );
+        let outcome = execute_task(&platform, &mut task, &Settings::default(), &|_| {});
+        assert!(
+            matches!(outcome, ExecutionOutcome::Failure { error_code, .. } if error_code == "TargetLostFocus")
+        );
+        assert_eq!(
+            platform
+                .recorded()
+                .iter()
+                .filter(|e| matches!(e, MockEvent::PressKey(..)))
+                .count(),
+            1
+        );
+    }
+
+    #[test]
+    fn text_with_newline_is_rejected_before_activation() {
+        let platform = MockPlatform::new(vec![terminal_window(42, "Codex")]);
+        let mut task = continue_task(
+            contains_target(),
+            vec![Action::TypeText {
+                text: "continue\n".into(),
+            }],
+        );
+        let outcome = execute_task(&platform, &mut task, &Settings::default(), &|_| {});
+        assert!(
+            matches!(outcome, ExecutionOutcome::Failure { error_code, .. } if error_code == "InvalidAction")
+        );
+        assert!(platform.recorded().is_empty());
+    }
+
+    #[test]
     fn target_not_found_aborts_without_input() {
         let windows = vec![terminal_window(1, "Totally unrelated")];
         let platform = MockPlatform::new(windows);
@@ -563,7 +621,7 @@ mod tests {
     }
 
     #[test]
-    fn focus_loss_can_be_disabled_by_setting() {
+    fn disabling_abort_still_requires_verified_reactivation() {
         let windows = vec![terminal_window(42, "Codex — rust-reality")];
         let mut platform = MockPlatform::new(windows);
         platform.lose_focus_after = Some(3);
@@ -574,7 +632,9 @@ mod tests {
         };
 
         let outcome = execute_task(&platform, &mut task, &settings, &|_| {});
-        assert_eq!(outcome, ExecutionOutcome::Success);
+        assert!(
+            matches!(outcome, ExecutionOutcome::Failure { error_code, .. } if error_code == "TargetLostFocus")
+        );
     }
 
     #[test]

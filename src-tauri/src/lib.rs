@@ -22,26 +22,58 @@ use crate::executor::PlatformAutomation;
 use crate::store::JsonStore;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
+pub struct StartupStatus(pub Option<String>);
+
 pub fn run() {
-    tauri::Builder::default()
+    let result = tauri::Builder::default()
+        .plugin(tauri_plugin_single_instance::init(|app, _, _| {
+            tray::show_main(app)
+        }))
+        .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_autostart::Builder::new().build())
         .setup(|app| {
-            let handle = app.handle().clone();
-            let data_dir = app.path().app_data_dir().expect("app data dir unavailable");
-            let store = JsonStore::new(data_dir.join("store.json"));
-
-            #[cfg(windows)]
-            let automation: Arc<dyn PlatformAutomation> =
-                Arc::new(platform::windows::WindowsAutomation);
-            #[cfg(not(windows))]
-            let automation: Arc<dyn PlatformAutomation> = Arc::new(UnsupportedAutomation);
-
-            let state = AppState::new(store, automation, handle)?;
-            app.manage(std::sync::Arc::clone(&state));
-            state.scheduler.clone().start();
-            state.sync_scheduler();
+            // Keep a visible diagnostics UI when loading fails. Never replace
+            // unreadable/newer user data with an empty writable store.
+            let initialized = (|| -> AppResult<()> {
+                let handle = app.handle().clone();
+                let data_dir = app
+                    .path()
+                    .app_data_dir()
+                    .map_err(|e| AppError::PersistenceFailure(e.to_string()))?;
+                let store = JsonStore::new(data_dir.join("store.json"));
+                let automation: Arc<dyn PlatformAutomation> = platform::automation();
+                let state = AppState::new(store, automation, handle)?;
+                app.manage(Arc::clone(&state));
+                let has_tray = match tray::setup_tray(app.handle()) {
+                    Ok(()) => true,
+                    Err(error) => {
+                        eprintln!("tray unavailable: {error}");
+                        false
+                    }
+                };
+                state.sync_scheduler()?;
+                state.scheduler.start()?;
+                if has_tray
+                    && state.lock_doc()?.settings.start_minimized
+                    && let Some(window) = app.get_webview_window("main")
+                {
+                    let _ = window.hide();
+                }
+                Ok(())
+            })();
+            app.manage(StartupStatus(initialized.err().map(|e| e.to_string())));
             Ok(())
         })
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event
+                && window.app_handle().tray_by_id("main-tray").is_some()
+            {
+                api.prevent_close();
+                let _ = window.hide();
+            }
+        })
         .invoke_handler(tauri::generate_handler![
+            commands::get_startup_error,
             commands::list_tasks,
             commands::create_task,
             commands::update_task,
@@ -57,36 +89,8 @@ pub fn run() {
             commands::create_quick_task,
             commands::default_title_match_mode,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
-}
-
-/// Placeholder for non-Windows compilation.
-#[cfg(not(windows))]
-struct UnsupportedAutomation;
-
-#[cfg(not(windows))]
-impl PlatformAutomation for UnsupportedAutomation {
-    fn enumerate(&self) -> Vec<model::WindowCandidate> {
-        Vec::new()
-    }
-    fn verify_cached(&self, _: u64) -> Option<model::WindowCandidate> {
-        None
-    }
-    fn restore(&self, _: u64) {}
-    fn activate(&self, _: u64) -> AppResult<()> {
-        Err(AppError::FailedToActivateTarget)
-    }
-    fn is_foreground(&self, _: u64) -> bool {
-        false
-    }
-    fn type_text(&self, _: &str) -> AppResult<()> {
-        Err(AppError::InputInjectionFailed)
-    }
-    fn press_key(&self, _: model::Key, _: u32, _: u64) -> AppResult<()> {
-        Err(AppError::InputInjectionFailed)
-    }
-    fn press_combination(&self, _: &[model::Key]) -> AppResult<()> {
-        Err(AppError::InputInjectionFailed)
+        .run(tauri::generate_context!());
+    if let Err(error) = result {
+        eprintln!("Agent Pulse could not start: {error}");
     }
 }

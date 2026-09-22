@@ -39,3 +39,24 @@ Executor tests use the mock `PlatformAutomation` and never touch the real deskto
 5. **Tray**: schedule a task, close the window to tray, verify it still fires.
 6. **Focus-loss abort**: start a long sequence and click into another app; verify abort
    before next input step.
+
+## v0.2.0 regression and release checks
+
+Run Rust commands from `src-tauri` (the Rust manifest is there). CI runs all Rust
+checks and builds bundles on Windows, macOS and Linux. Unit tests never inject
+into the user's desktop. The native macOS/Linux backends need interactive acceptance
+checks in addition to CI compile/test coverage (see COMPATIBILITY.md).
+
+Regression coverage added: repeated Enter focus loss, cached ambiguity, newline
+rejection, physical Enter/extended navigation events, process image lookup, schedule
+overflow, decades of missed intervals, original scheduled timestamp, Skip-only live
+loop, completed-task edit, exact schedule re-arm, memory/disk settings/history and
+failed-save rollback, completion preserving newer edits.
+
+Before relying on a terminal, use a disposable prompt to verify **one** expected Enter.
+Repeat with a double-Enter preset only when explicitly selected. Check that selecting
+windows, testing targets, editing names/actions and changing settings send zero input.
+Also test application restart past a deadline, two instances, simultaneous tasks,
+active modifiers, failure to activate and a focus switch between repeated key presses.
+On macOS test denied/granted permissions and multiple windows. On Linux test an X11
+session and the explicit Wayland rejection. Installer outputs are unsigned.

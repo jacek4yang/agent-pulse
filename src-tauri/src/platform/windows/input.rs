@@ -2,8 +2,9 @@
 //! uses KEYEVENTF_UNICODE events; the clipboard is never touched (D3).
 
 use windows::Win32::UI::Input::KeyboardAndMouse::{
-    INPUT, INPUT_0, INPUT_KEYBOARD, KEYBD_EVENT_FLAGS, KEYBDINPUT, KEYEVENTF_KEYUP,
-    KEYEVENTF_UNICODE, SendInput, VIRTUAL_KEY,
+    GetAsyncKeyState, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBD_EVENT_FLAGS, KEYBDINPUT,
+    KEYEVENTF_EXTENDEDKEY, KEYEVENTF_KEYUP, KEYEVENTF_SCANCODE, KEYEVENTF_UNICODE, MAPVK_VK_TO_VSC,
+    MapVirtualKeyW, SendInput, VIRTUAL_KEY,
 };
 
 use crate::error::{AppError, AppResult};
@@ -52,7 +53,18 @@ pub(crate) fn virtual_key(key: &Key) -> Option<u16> {
 /// Safety invariant for all SendInput calls below: INPUT structs are plain
 /// value types built on the stack with initialized unions; SendInput copies
 /// them synchronously. Failures are surfaced as `InputInjectionFailed`.
-fn send(inputs: &[INPUT]) -> AppResult<()> {
+fn send(raw_hwnd: u64, inputs: &[INPUT]) -> AppResult<()> {
+    if !super::focus::is_foreground(raw_hwnd) {
+        return Err(AppError::TargetLostFocus);
+    }
+    // Safety: read-only keyboard state query. Do not turn Enter into a user-held
+    // Shift/Ctrl/Alt/Windows shortcut or release keys the user is holding.
+    let modifier_held = [0x10, 0x11, 0x12, 0x5B, 0x5C]
+        .iter()
+        .any(|vk| unsafe { GetAsyncKeyState(*vk) < 0 });
+    if modifier_held {
+        return Err(AppError::ModifierKeyHeld);
+    }
     // Safety: inputs is a fully initialized slice of INPUT structs.
     let sent = unsafe { SendInput(inputs, std::mem::size_of::<INPUT>() as i32) };
     if sent as usize != inputs.len() {
@@ -77,36 +89,56 @@ fn keyboard_input(vk: u16, scan: u16, flags: KEYBD_EVENT_FLAGS) -> INPUT {
 }
 
 fn key_event(vk: u16, up: bool) -> INPUT {
-    let flags = if up {
+    let mut flags = if up {
         KEYEVENTF_KEYUP
     } else {
         KEYBD_EVENT_FLAGS(0)
     };
-    keyboard_input(vk, 0, flags)
+    // Main Enter uses a physical scan code, never VK_PACKET / a Unicode newline.
+    // Navigation keys are extended; without this bit terminals may see numpad keys.
+    let scan = if vk == 0x0D {
+        0x1C
+    } else {
+        // Safety: pure mapping of a validated virtual key using the current layout.
+        unsafe { MapVirtualKeyW(u32::from(vk), MAPVK_VK_TO_VSC) as u16 }
+    };
+    if matches!(vk, 0x21..=0x28 | 0x2E) {
+        flags |= KEYEVENTF_EXTENDEDKEY;
+    }
+    if vk == 0x0D {
+        flags |= KEYEVENTF_SCANCODE;
+    }
+    keyboard_input(vk, scan, flags)
 }
 
 /// Type arbitrary Unicode text as KEYEVENTF_UNICODE down/up pairs.
 /// Characters outside the BMP are sent as surrogate pairs.
-pub fn type_unicode(text: &str) -> AppResult<()> {
-    let mut inputs = Vec::with_capacity(text.len() * 2);
-    for unit in text.encode_utf16() {
-        let flags_down = KEYEVENTF_UNICODE;
-        inputs.push(keyboard_input(0, unit, flags_down));
-        inputs.push(keyboard_input(0, unit, flags_down | KEYEVENTF_KEYUP));
+pub fn type_unicode(raw_hwnd: u64, text: &str) -> AppResult<()> {
+    // Bound each batch to one Unicode scalar so focus is rechecked throughout
+    // long text and surrogate pairs stay together in the same SendInput call.
+    for ch in text.chars() {
+        let mut utf16 = [0u16; 2];
+        let mut inputs = Vec::with_capacity(4);
+        for unit in ch.encode_utf16(&mut utf16) {
+            inputs.push(keyboard_input(0, *unit, KEYEVENTF_UNICODE));
+            inputs.push(keyboard_input(
+                0,
+                *unit,
+                KEYEVENTF_UNICODE | KEYEVENTF_KEYUP,
+            ));
+        }
+        send(raw_hwnd, &inputs)?;
     }
-    if inputs.is_empty() {
-        return Ok(());
-    }
-    send(&inputs)
+    Ok(())
 }
 
 /// Press a key `count` times with an interval between presses.
-pub fn press_key(key: &Key, count: u32, interval_ms: u64) -> AppResult<()> {
+pub fn press_key(raw_hwnd: u64, key: &Key, count: u32, interval_ms: u64) -> AppResult<()> {
     let Some(vk) = virtual_key(key) else {
         return Err(AppError::InputInjectionFailed);
     };
     for i in 0..count {
-        send(&[key_event(vk, false), key_event(vk, true)])?;
+        send(raw_hwnd, &[key_event(vk, false), key_event(vk, true)])?;
         if i + 1 < count && interval_ms > 0 {
             std::thread::sleep(std::time::Duration::from_millis(interval_ms));
         }
@@ -116,7 +148,7 @@ pub fn press_key(key: &Key, count: u32, interval_ms: u64) -> AppResult<()> {
 
 /// Press a combination: modifiers down first, then non-modifiers, then
 /// release everything in reverse order (Ctrl+C releases C before Ctrl).
-pub fn press_combination(keys: &[Key]) -> AppResult<()> {
+pub fn press_combination(raw_hwnd: u64, keys: &[Key]) -> AppResult<()> {
     if keys.is_empty() {
         return Ok(());
     }
@@ -140,7 +172,7 @@ pub fn press_combination(keys: &[Key]) -> AppResult<()> {
         };
         inputs.push(key_event(vk, *up));
     }
-    send(&inputs)
+    send(raw_hwnd, &inputs)
 }
 
 #[cfg(test)]
@@ -186,5 +218,21 @@ mod tests {
         // Out of domain: lowercase non-letters and invalid digits/functions.
         assert!(virtual_key(&Key::Letter('!')).is_none());
         assert!(virtual_key(&Key::Function(13)).is_none());
+    }
+
+    #[test]
+    fn enter_is_physical_return_and_navigation_keys_are_extended() {
+        // Safety: key_event initializes the keyboard member of every INPUT union.
+        unsafe {
+            let down = key_event(0x0D, false).Anonymous.ki;
+            let up = key_event(0x0D, true).Anonymous.ki;
+            assert_eq!(down.wScan, 0x1C);
+            assert_eq!(down.dwFlags, KEYEVENTF_SCANCODE);
+            assert_eq!(up.dwFlags, KEYEVENTF_SCANCODE | KEYEVENTF_KEYUP);
+            assert_eq!(
+                key_event(0x25, false).Anonymous.ki.dwFlags,
+                KEYEVENTF_EXTENDEDKEY
+            );
+        }
     }
 }

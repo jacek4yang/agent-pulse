@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { parseDateTimeText } from "../lib/timetz";
 import { useI18n } from "../lib/i18n";
 import { api, errorCode, errorMessage } from "../lib/api";
 import { ActionList } from "../components/ActionList";
@@ -23,12 +24,16 @@ export function Editor({
     task?.schedule?.kind === "at" ? task.schedule.timezone || "local" : "local",
   );
   const [atValue, setAtValue] = useState(() => {
-    const d = new Date(Date.now() + 3600_000);
     const p = (n: number) => String(n).padStart(2, "0");
-    return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
+    if (task?.schedule.kind === "at") {
+      const s = task.schedule;
+      return `${s.year}-${p(s.month)}-${p(s.day)}T${p(s.hour)}:${p(s.minute)}:${p(s.second)}`;
+    }
+    const d = new Date(Date.now() + 3600_000);
+    return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
   });
   const [everyMinutes, setEveryMinutes] = useState(
-    task?.schedule?.kind === "every" ? Math.round(task.schedule.interval_seconds / 60) : 30,
+    task?.schedule?.kind === "every" ? task.schedule.interval_seconds / 60 : 30,
   );
   const [actions, setActions] = useState<Action[]>(task?.actions ?? []);
   const [policy, setPolicy] = useState<MisfirePolicy>(task?.misfire_policy ?? "run_immediately");
@@ -42,17 +47,9 @@ export function Editor({
       case "after":
         return { kind, hours, minutes, seconds };
       case "at": {
-        const d = new Date(atValue);
-        return {
-          kind,
-          year: d.getFullYear(),
-          month: d.getMonth() + 1,
-          day: d.getDate(),
-          hour: d.getHours(),
-          minute: d.getMinutes(),
-          second: 0,
-          timezone: atZone,
-        };
+        const parsed = parseDateTimeText(atValue);
+        if (!parsed) throw new Error(t("invalidTimeFormat"));
+        return { kind, ...parsed, timezone: atZone };
       }
       case "every":
         return { kind, interval_seconds: Math.max(1, Math.round(everyMinutes * 60)) };
@@ -183,7 +180,7 @@ export function Editor({
             <label className="row" style={{ gap: 8 }}>
               <input type="radio" checked={kind === "every"} onChange={() => setKind("every")} style={{ flex: "none" }} />
               <span style={{ flex: "none", fontSize: 12 }}>{t("schedEvery")}</span>
-              <input className="input" type="number" min={1} value={everyMinutes} onChange={(e) => setEveryMinutes(Number(e.target.value))} disabled={kind !== "every"} />
+              <input className="input" type="number" min={1 / 60} step="any" value={everyMinutes} onChange={(e) => setEveryMinutes(Number(e.target.value))} disabled={kind !== "every"} />
               <span className="muted" style={{ flex: "none" }}>{t("minutes")}</span>
             </label>
           </div>

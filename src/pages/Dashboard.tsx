@@ -58,7 +58,7 @@ export function Dashboard({
 
   // actions
   const [actionMode, setActionMode] = useState<ActionMode>("preset");
-  const [preset, setPreset] = useState<Preset>("continue_confirm");
+  const [preset, setPreset] = useState<Preset>("continue");
   const [customActions, setCustomActions] = useState<Action[]>([
     { type: "focus_target" },
     { type: "type_text", text: "continue" },
@@ -399,7 +399,11 @@ function TaskRow({
     setBusy(true);
     setFlash(null);
     try {
-      await fn();
+      const result = await fn();
+      if (result && typeof result === "object" && "outcome" in result) {
+        const outcome = (result as { outcome: { outcome: string; error_code?: string; error_message?: string } }).outcome;
+        if (outcome.outcome === "failure") setFlash(`${outcome.error_code}: ${outcome.error_message}`);
+      }
       onChanged();
     } catch (e) {
       setFlash(`${errorCode(e) ?? "Error"}: ${errorMessage(e)}`);

@@ -34,16 +34,16 @@ impl PlatformAutomation for WindowsAutomation {
         is_foreground(raw_hwnd)
     }
 
-    fn type_text(&self, text: &str) -> AppResult<()> {
-        type_unicode(text)
+    fn type_text(&self, raw_hwnd: u64, text: &str) -> AppResult<()> {
+        type_unicode(raw_hwnd, text)
     }
 
-    fn press_key(&self, key: Key, count: u32, interval_ms: u64) -> AppResult<()> {
-        press_key(&key, count, interval_ms)
+    fn press_key(&self, raw_hwnd: u64, key: Key, count: u32, interval_ms: u64) -> AppResult<()> {
+        press_key(raw_hwnd, &key, count, interval_ms)
     }
 
-    fn press_combination(&self, keys: &[Key]) -> AppResult<()> {
-        press_combination(keys)
+    fn press_combination(&self, raw_hwnd: u64, keys: &[Key]) -> AppResult<()> {
+        press_combination(raw_hwnd, keys)
     }
 }
 

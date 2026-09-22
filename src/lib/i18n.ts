@@ -170,15 +170,15 @@ export const STRINGS = {
   behavior: { en: "Behavior", zh: "行为" },
   abortOnFocusLoss: { en: "Abort on focus loss", zh: "失焦时中止" },
   abortOnFocusLossHint: {
-    en: "Stop the sequence if the target stops being the foreground window (recommended).",
-    zh: "当目标窗口不再处于前台时停止执行（推荐开启）。",
+    en: "Stop when focus is lost (recommended). When off, reacquire and verify the target before continuing.",
+    zh: "失焦时停止执行（推荐）。关闭后会重新激活并核验目标，再继续输入。",
   },
   historyLimit: { en: "History limit", zh: "历史上限" },
   startup: { en: "Startup", zh: "启动" },
-  startWithWindows: { en: "Start with Windows", zh: "开机自启" },
+  startWithWindows: { en: "Start at sign-in", zh: "开机自启" },
   startWithWindowsHint: {
     en: "Launch Agent Pulse when you sign in.",
-    zh: "登录 Windows 时自动启动 Agent Pulse。",
+    zh: "登录系统时自动启动 Agent Pulse。",
   },
   startMinimized: { en: "Start minimized", zh: "启动时最小化" },
   startMinimizedHint: {

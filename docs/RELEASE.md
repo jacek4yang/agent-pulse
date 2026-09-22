@@ -25,3 +25,13 @@ release-prep PR (or via script).
 - No signing keys in the repo. Code signing is deferred (see docs/SECURITY.md).
 - If the release workflow fails, fix and re-tag (`v0.1.0-rc2` style test tags are fine;
   delete failed drafts before re-running).
+
+## v0.2.0 release procedure
+
+Version must match package.json, src-tauri/tauri.conf.json, src-tauri/Cargo.toml and
+src-tauri/Cargo.lock. Tag only the green squash-merged commit. release.yml performs
+native quality gates/builds for Windows x64, universal macOS and Linux x64, uploads
+job artifacts, and publishes only after all three succeed. The publishing job requires
+EXE/MSI/DMG/DEB/AppImage, rejects duplicate filenames and writes SHA256SUMS.txt over
+installers only. Notes come from docs/RELEASE_NOTES.md. Verify GitHub assets and hashes
+before reporting completion. Do not move a published release tag to repair a build.

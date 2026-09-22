@@ -39,7 +39,7 @@ impl ScheduledTask {
     ) -> crate::error::AppResult<Self> {
         schedule.validate()?;
         let next_run_at = Some(schedule.first_run_at(now)?);
-        Ok(Self {
+        let task = Self {
             id: Uuid::new_v4(),
             name: name.into(),
             enabled: true,
@@ -51,7 +51,51 @@ impl ScheduledTask {
             updated_at: now,
             last_run_at: None,
             next_run_at,
-        })
+        };
+        task.validate()?;
+        Ok(task)
+    }
+
+    pub fn validate(&self) -> crate::error::AppResult<()> {
+        use crate::error::AppError;
+        if self.name.trim().is_empty() {
+            return Err(AppError::InvalidAction(
+                "task name must not be empty".into(),
+            ));
+        }
+        if self.actions.is_empty() || self.actions.len() > 256 {
+            return Err(AppError::InvalidAction(
+                "use between 1 and 256 actions".into(),
+            ));
+        }
+        self.schedule.validate()?;
+        for action in &self.actions {
+            action.validate()?;
+        }
+        Ok(())
+    }
+
+    /// Merge user-editable fields without trusting stale runtime timestamps.
+    pub fn apply_edit(
+        &mut self,
+        mut updated: Self,
+        now: DateTime<Utc>,
+    ) -> crate::error::AppResult<()> {
+        updated.validate()?;
+        updated.id = self.id;
+        updated.created_at = self.created_at;
+        updated.last_run_at = self.last_run_at;
+        updated.updated_at = now;
+        if updated.schedule != self.schedule || (!self.enabled && updated.enabled) {
+            updated.rearm(now)?;
+        } else {
+            updated.next_run_at = self.next_run_at;
+        }
+        if !updated.enabled {
+            updated.next_run_at = None;
+        }
+        *self = updated;
+        Ok(())
     }
 
     /// Re-arm the schedule (used after enable/creation/edit), recomputing
@@ -132,6 +176,30 @@ mod tests {
         let json = serde_json::to_string(&task).expect("test serialize");
         let back: ScheduledTask = serde_json::from_str(&json).expect("test deserialize");
         assert_eq!(back, task);
+    }
+
+    #[test]
+    fn editing_completed_task_does_not_rearm_or_restore_stale_deadline() {
+        let (mut task, now) = continue_task();
+        let mut stale = task.clone();
+        task.next_run_at = None;
+        task.last_run_at = Some(now);
+        stale.name = "renamed".into();
+        task.apply_edit(stale, now + chrono::Duration::hours(10))
+            .expect("edit");
+        assert_eq!(task.next_run_at, None);
+        assert_eq!(task.last_run_at, Some(now));
+    }
+
+    #[test]
+    fn changing_schedule_recomputes_deadline() {
+        let (mut task, now) = continue_task();
+        let mut edited = task.clone();
+        edited.schedule = Schedule::Every {
+            interval_seconds: 90,
+        };
+        task.apply_edit(edited, now).expect("edit");
+        assert_eq!(task.next_run_at, Some(now + chrono::Duration::seconds(90)));
     }
 
     #[test]

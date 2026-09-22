@@ -25,12 +25,12 @@ pub fn setup_tray(app: &AppHandle) -> tauri::Result<()> {
                 "open" => show_main(app),
                 "quit" => {
                     // Explicit quit: stop the scheduler cleanly and exit.
-                    let state: tauri::State<AppState> = app.state();
+                    let state: tauri::State<std::sync::Arc<AppState>> = app.state();
                     state.scheduler.stop();
                     app.exit(0);
                 }
                 "pause_all" => {
-                    let state: tauri::State<AppState> = app.state();
+                    let state: tauri::State<std::sync::Arc<AppState>> = app.state();
                     let paused = !state.scheduler.is_paused();
                     state.scheduler.set_paused(paused);
                     let _ = app.emit("tray-pause-changed", paused);

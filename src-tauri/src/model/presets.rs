@@ -12,7 +12,7 @@ use super::key::Key;
 pub enum Preset {
     /// Focus → "continue" → Enter
     Continue,
-    /// Focus → "continue" → Enter → wait → Enter (recommended default)
+    /// Focus → "continue" → Enter → wait → Enter (explicit opt-in)
     ContinueConfirm,
     /// Focus → Enter → wait → "continue" → Enter
     ConfirmContinue,
@@ -44,7 +44,7 @@ impl Preset {
 
     /// The default preset for quick creation.
     pub fn default_preset() -> Preset {
-        Preset::ContinueConfirm
+        Preset::Continue
     }
 
     /// Build the ordered action list for this preset.
