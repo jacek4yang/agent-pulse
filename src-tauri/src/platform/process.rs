@@ -14,20 +14,41 @@ pub fn run(program: &str, args: &[&str]) -> AppResult<String> {
         .map_err(|e| AppError::AutomationUnavailable(format!("{program}: {e}")))?;
     let stdout = child.stdout.take();
     let stderr = child.stderr.take();
-    let out = std::thread::spawn(move || {
-        let mut bytes = Vec::new();
-        if let Some(pipe) = stdout {
-            let _ = pipe.take(1_048_576).read_to_end(&mut bytes);
+    let out = std::thread::Builder::new()
+        .name("automation-stdout".into())
+        .spawn(move || {
+            let mut bytes = Vec::new();
+            if let Some(pipe) = stdout {
+                let _ = pipe.take(1_048_576).read_to_end(&mut bytes);
+            }
+            bytes
+        });
+    let out = match out {
+        Ok(handle) => handle,
+        Err(error) => {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(AppError::StateUnavailable(error.to_string()));
         }
-        bytes
-    });
-    let err = std::thread::spawn(move || {
-        let mut bytes = Vec::new();
-        if let Some(pipe) = stderr {
-            let _ = pipe.take(65536).read_to_end(&mut bytes);
+    };
+    let err = std::thread::Builder::new()
+        .name("automation-stderr".into())
+        .spawn(move || {
+            let mut bytes = Vec::new();
+            if let Some(pipe) = stderr {
+                let _ = pipe.take(65536).read_to_end(&mut bytes);
+            }
+            bytes
+        });
+    let err = match err {
+        Ok(handle) => handle,
+        Err(error) => {
+            let _ = child.kill();
+            let _ = child.wait();
+            let _ = out.join();
+            return Err(AppError::StateUnavailable(error.to_string()));
         }
-        bytes
-    });
+    };
     let started = Instant::now();
     let status = loop {
         match child.try_wait() {

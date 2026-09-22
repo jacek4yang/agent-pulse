@@ -1,5 +1,5 @@
-//! Explicit integration probe, only run inside an isolated Xvfb desktop in CI.
-#[cfg(target_os = "linux")]
+//! Explicit integration probe, only run inside an isolated desktop in CI.
+#[cfg(any(windows, target_os = "linux"))]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     use agent_pulse_lib::{executor::run_task_once, model::*, platform};
     if std::env::var("AGENT_PULSE_ISOLATED_DESKTOP_TEST").as_deref() != Ok("1") {
@@ -46,7 +46,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-#[cfg(not(target_os = "linux"))]
+#[cfg(not(any(windows, target_os = "linux")))]
 fn main() {
-    eprintln!("This probe runs only on an isolated Linux X11 desktop.");
+    eprintln!("This probe runs only on an isolated Windows or Linux X11 desktop.");
 }

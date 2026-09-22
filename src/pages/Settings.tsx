@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { api, errorMessage } from "../lib/api";
 import { Card, Toggle } from "../components/ui";
 import { useI18n } from "../lib/i18n";
@@ -8,18 +8,27 @@ export function SettingsPage({
   settings, onChanged,
 }: { settings: Settings; onChanged: () => void }) {
   const { t } = useI18n();
+  const saving = useRef(false);
+  const [busy, setBusy] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const update = async (patch: Partial<Settings>) => {
+    if (saving.current) return;
+    saving.current = true;
+    setBusy(true);
+    setError(null);
     const next = { ...settings, ...patch };
     try {
       await api.updateSettings(next);
       setSaved(true);
       setTimeout(() => setSaved(false), 1500);
-      onChanged();
+      await onChanged();
     } catch (e) {
       setError(errorMessage(e));
+    } finally {
+      saving.current = false;
+      setBusy(false);
     }
   };
 
@@ -33,6 +42,7 @@ export function SettingsPage({
       </div>
       {error && <div className="error-banner">{error}</div>}
 
+      <fieldset disabled={busy} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
       <Card title={t("appearance")}>
         <div className="field">
           <span className="field-label">{t("language")}</span>
@@ -101,6 +111,7 @@ export function SettingsPage({
           onChange={(v) => update({ start_minimized: v })}
         />
       </Card>
+      </fieldset>
     </>
   );
 }

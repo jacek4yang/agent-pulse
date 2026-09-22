@@ -48,6 +48,8 @@ pub enum AppError {
     /// The task is disabled and cannot run.
     #[error("task is disabled")]
     TaskDisabled,
+    #[error("task was paused, edited or deleted; remaining input cancelled")]
+    TaskCancelled,
     /// Another task is already executing a sequence.
     #[error("another task execution is already running")]
     ExecutionAlreadyRunning,
@@ -76,6 +78,7 @@ impl AppError {
             AppError::InvalidSchedule(_) => "InvalidSchedule",
             AppError::UnsupportedStoreVersion(_) => "UnsupportedStoreVersion",
             AppError::PersistenceFailure(_) => "PersistenceFailure",
+            AppError::TaskCancelled => "TaskCancelled",
             AppError::TaskDisabled => "TaskDisabled",
             AppError::ExecutionAlreadyRunning => "ExecutionAlreadyRunning",
             AppError::TaskNotFound(_) => "TaskNotFound",

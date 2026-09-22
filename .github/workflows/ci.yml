@@ -5,7 +5,7 @@ on:
   pull_request:
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 jobs:
   frontend:
     name: Frontend lint & build
@@ -69,6 +69,10 @@ jobs:
         working-directory: src-tauri
       - run: cargo test --workspace --locked
         working-directory: src-tauri
+      - name: Isolated Windows native Enter smoke test
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./scripts/windows-smoke.ps1
       - name: Isolated Linux terminal Enter smoke test
         if: runner.os == 'Linux'
         run: xvfb-run -a bash scripts/linux-smoke.sh

@@ -68,9 +68,35 @@ fn send(raw_hwnd: u64, inputs: &[INPUT]) -> AppResult<()> {
     // Safety: inputs is a fully initialized slice of INPUT structs.
     let sent = unsafe { SendInput(inputs, std::mem::size_of::<INPUT>() as i32) };
     if sent as usize != inputs.len() {
+        // A short write may have left one of OUR keys down. Release only keys
+        // accepted in this batch, and only while the verified target still owns
+        // focus. Never continue the sequence or replay the failed text/key.
+        let releases = pending_releases(inputs, sent as usize);
+        if !releases.is_empty() && super::focus::is_foreground(raw_hwnd) {
+            // Safety: initialized keyboard INPUT values, same verified target;
+            // these are key-up events for this call's accepted key-downs only.
+            let _ = unsafe { SendInput(&releases, std::mem::size_of::<INPUT>() as i32) };
+        }
         return Err(AppError::InputInjectionFailed);
     }
     Ok(())
+}
+
+fn pending_releases(inputs: &[INPUT], sent: usize) -> Vec<INPUT> {
+    let mut held: Vec<KEYBDINPUT> = Vec::new();
+    for input in inputs.iter().take(sent) {
+        // Safety: all callers build INPUT_KEYBOARD with the ki member initialized.
+        let key = unsafe { input.Anonymous.ki };
+        if key.dwFlags.contains(KEYEVENTF_KEYUP) {
+            held.retain(|down| down.wVk != key.wVk || down.wScan != key.wScan);
+        } else {
+            held.push(key);
+        }
+    }
+    held.iter()
+        .rev()
+        .map(|key| keyboard_input(key.wVk.0, key.wScan, key.dwFlags | KEYEVENTF_KEYUP))
+        .collect()
 }
 
 fn keyboard_input(vk: u16, scan: u16, flags: KEYBD_EVENT_FLAGS) -> INPUT {
@@ -234,5 +260,23 @@ mod tests {
                 KEYEVENTF_EXTENDEDKEY
             );
         }
+    }
+
+    #[test]
+    fn partial_combination_releases_only_unpaired_injected_keys() {
+        let inputs = [
+            key_event(0x11, false),
+            key_event(0x43, false),
+            key_event(0x43, true),
+            key_event(0x11, true),
+        ];
+        let releases = pending_releases(&inputs, 3);
+        assert_eq!(releases.len(), 1);
+        // Safety: pending_releases constructs the initialized keyboard member.
+        let key = unsafe { releases[0].Anonymous.ki };
+        assert_eq!(key.wVk, VIRTUAL_KEY(0x11));
+        assert!(key.dwFlags.contains(KEYEVENTF_KEYUP));
+        assert!(pending_releases(&inputs, 0).is_empty());
+        assert!(pending_releases(&inputs, 4).is_empty());
     }
 }

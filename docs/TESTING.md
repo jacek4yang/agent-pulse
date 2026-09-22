@@ -60,3 +60,8 @@ Also test application restart past a deadline, two instances, simultaneous tasks
 active modifiers, failure to activate and a focus switch between repeated key presses.
 On macOS test denied/granted permissions and multiple windows. On Linux test an X11
 session and the explicit Wayland rejection. Installer outputs are unsigned.
+
+CI also runs native input probes in disposable Windows (Tk receiver) and Linux
+(Xvfb + Openbox + xterm) sessions. They assert exact text and one submission, with
+a two-second observation window for unintended extra Enter. These never run during
+unit tests and are not invoked on a developer desktop.

@@ -1,7 +1,8 @@
-﻿# v0.2.0 — Reliable Enter execution and desktop platform support
+# v0.2.0 — Reliable Enter execution and desktop platform support
 
 ## Fixes
 
+- Pausing, editing or deleting a task cancels remaining input, including during delays.
 - Default Continue submits once; extra confirmation Enter is an explicit preset.
 - Physical Windows Enter scan code; correct extended navigation key flags.
 - Foreground checks on every repeated press and throughout text input. Disabling

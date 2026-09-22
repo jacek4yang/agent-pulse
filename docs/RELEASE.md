@@ -29,9 +29,14 @@ release-prep PR (or via script).
 ## v0.2.0 release procedure
 
 Version must match package.json, src-tauri/tauri.conf.json, src-tauri/Cargo.toml and
-src-tauri/Cargo.lock. Tag only the green squash-merged commit. release.yml performs
-native quality gates/builds for Windows x64, universal macOS and Linux x64, uploads
-job artifacts, and publishes only after all three succeed. The publishing job requires
-EXE/MSI/DMG/DEB/AppImage, rejects duplicate filenames and writes SHA256SUMS.txt over
-installers only. Notes come from docs/RELEASE_NOTES.md. Verify GitHub assets and hashes
-before reporting completion. Do not move a published release tag to repair a build.
+src-tauri/Cargo.lock. Merge only green PR CI, then wait for **main push CI** on the
+squash commit to pass before tagging. Main CI runs native fmt/clippy/tests, Windows
+and Linux input probes, and builds Windows EXE/MSI, universal macOS DMG and Linux
+DEB/AppImage. It uploads desktop-* artifacts.
+
+Tag v0.2.0 at that exact commit. release.yml requires a successful main CI with the
+same SHA and downloads its actual artifacts. It verifies all three platform artifact
+sets and five installer types, rejects duplicate filenames, computes SHA256SUMS.txt
+over installers only, and publishes with docs/RELEASE_NOTES.md. A missing/failed CI
+cannot publish. Rerun Release if tagged before main CI completed; never move a
+published tag. Verify all downloaded release hashes before reporting completion.

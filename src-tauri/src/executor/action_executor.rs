@@ -95,7 +95,7 @@ pub fn execute_task(
     settings: &Settings,
     notify: &dyn Fn(&str),
 ) -> ExecutionOutcome {
-    match run_sequence(platform, task, settings, notify) {
+    match run_sequence(platform, task, settings, notify, &|| false) {
         Ok(_) => ExecutionOutcome::Success,
         Err(e) => ExecutionOutcome::Failure {
             error_code: e.code().to_string(),
@@ -111,8 +111,9 @@ fn execute_task_with_target(
     task: &mut ScheduledTask,
     settings: &Settings,
     notify: &dyn Fn(&str),
+    cancelled: &dyn Fn() -> bool,
 ) -> (ExecutionOutcome, String) {
-    match run_sequence(platform, task, settings, notify) {
+    match run_sequence(platform, task, settings, notify, cancelled) {
         Ok(description) => (ExecutionOutcome::Success, description),
         Err(e) => (
             ExecutionOutcome::Failure {
@@ -132,7 +133,9 @@ fn run_sequence(
     task: &mut ScheduledTask,
     settings: &Settings,
     notify: &dyn Fn(&str),
+    cancelled: &dyn Fn() -> bool,
 ) -> AppResult<String> {
+    check_cancelled(cancelled)?;
     task.validate()?;
     platform.check_available()?;
     let target = resolve_target_for_task(platform, task)?;
@@ -143,6 +146,7 @@ fn run_sequence(
     platform.activate(target.raw_hwnd)?;
 
     for action in &task.actions {
+        check_cancelled(cancelled)?;
         // Focus re-verification before meaningful input steps (spec §30).
         if action_is_input(action) {
             ensure_foreground(platform, target.raw_hwnd, settings)?;
@@ -150,24 +154,30 @@ fn run_sequence(
         match action {
             Action::FocusTarget => platform.activate(target.raw_hwnd)?,
             Action::RestoreTarget => platform.restore(target.raw_hwnd),
-            Action::TypeText { text } => platform.type_text(target.raw_hwnd, text)?,
+            Action::TypeText { text } => {
+                for chars in text.chars().collect::<Vec<_>>().chunks(32) {
+                    check_cancelled(cancelled)?;
+                    ensure_foreground(platform, target.raw_hwnd, settings)?;
+                    platform.type_text(target.raw_hwnd, &chars.iter().collect::<String>())?;
+                }
+            }
             Action::PressKey {
                 key,
                 count,
                 interval_ms,
             } => {
                 for i in 0..*count {
+                    check_cancelled(cancelled)?;
                     ensure_foreground(platform, target.raw_hwnd, settings)?;
                     platform.press_key(target.raw_hwnd, *key, 1, 0)?;
                     if i + 1 < *count && *interval_ms > 0 {
-                        std::thread::sleep(Duration::from_millis(*interval_ms));
+                        wait_with_cancel(*interval_ms, cancelled)?;
                     }
                 }
             }
             Action::KeyCombination { keys } => platform.press_combination(target.raw_hwnd, keys)?,
             Action::Delay { milliseconds } => {
-                let ms = (*milliseconds).min(u64::from(u32::MAX));
-                std::thread::sleep(Duration::from_millis(ms));
+                wait_with_cancel(*milliseconds, cancelled)?;
                 // Long delays: the user may have switched apps meanwhile.
                 if settings.abort_on_focus_loss
                     && *milliseconds >= FOCUS_RECHECK_DELAY_MS
@@ -180,6 +190,26 @@ fn run_sequence(
         }
     }
     Ok(target.description)
+}
+
+fn check_cancelled(cancelled: &dyn Fn() -> bool) -> AppResult<()> {
+    if cancelled() {
+        Err(AppError::TaskCancelled)
+    } else {
+        Ok(())
+    }
+}
+
+fn wait_with_cancel(milliseconds: u64, cancelled: &dyn Fn() -> bool) -> AppResult<()> {
+    let end = std::time::Instant::now() + Duration::from_millis(milliseconds);
+    loop {
+        check_cancelled(cancelled)?;
+        let remaining = end.saturating_duration_since(std::time::Instant::now());
+        if remaining.is_zero() {
+            return Ok(());
+        }
+        std::thread::sleep(remaining.min(Duration::from_millis(100)));
+    }
 }
 
 fn ensure_foreground(
@@ -237,12 +267,24 @@ pub fn run_task_once(
     scheduled_at: DateTime<Utc>,
     notify: &dyn Fn(&str),
 ) -> AppResult<HistoryRecord> {
+    run_task_once_cancellable(platform, task, settings, scheduled_at, notify, &|| false)
+}
+
+pub fn run_task_once_cancellable(
+    platform: &dyn PlatformAutomation,
+    task: &mut ScheduledTask,
+    settings: &Settings,
+    scheduled_at: DateTime<Utc>,
+    notify: &dyn Fn(&str),
+    cancelled: &dyn Fn() -> bool,
+) -> AppResult<HistoryRecord> {
     if !task.enabled {
         return Err(AppError::TaskDisabled);
     }
     let _guard = ExecutionGuard::try_acquire()?;
     let started_at = Utc::now();
-    let (outcome, description) = execute_task_with_target(platform, task, settings, notify);
+    let (outcome, description) =
+        execute_task_with_target(platform, task, settings, notify, cancelled);
     Ok(history_record(
         task,
         scheduled_at,
@@ -559,6 +601,41 @@ mod tests {
                 .filter(|e| matches!(e, MockEvent::PressKey(..)))
                 .count(),
             1
+        );
+    }
+
+    #[test]
+    fn cancelling_during_delay_prevents_later_enter() {
+        let platform = MockPlatform::new(vec![terminal_window(42, "Codex")]);
+        let mut task = continue_task(
+            contains_target(),
+            vec![
+                Action::Delay { milliseconds: 1000 },
+                Action::PressKey {
+                    key: Key::Enter,
+                    count: 1,
+                    interval_ms: 0,
+                },
+            ],
+        );
+        let calls = std::cell::Cell::new(0);
+        let cancelled = || {
+            calls.set(calls.get() + 1);
+            calls.get() > 3
+        };
+        let result = run_sequence(
+            &platform,
+            &mut task,
+            &Settings::default(),
+            &|_| {},
+            &cancelled,
+        );
+        assert!(matches!(result, Err(AppError::TaskCancelled)));
+        assert!(
+            !platform
+                .recorded()
+                .iter()
+                .any(|e| matches!(e, MockEvent::PressKey(..)))
         );
     }
 

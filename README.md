@@ -1,4 +1,4 @@
-﻿# Agent Pulse
+# Agent Pulse
 
 Schedule a keyboard sequence against a specific foreground application window.
 The Rust scheduler supports delays, exact times with timezones, recurring tasks,
@@ -11,6 +11,7 @@ and persisted deadlines across restarts.
 - Foreground checks before each repeated key and during text entry; no input on
   ambiguous targets or failed activation. Held modifiers abort instead of changing
   Enter into Shift/Ctrl/Alt+Enter.
+- Pause/edit/delete cancels pending input, including during delays.
 - One application instance and one executing sequence. Concurrent attempts report
   `ExecutionAlreadyRunning` in history instead of interleaving keyboard input.
 - Fixed startup recovery, task edits re-arming completed tasks, schedule overflow,

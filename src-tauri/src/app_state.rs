@@ -128,7 +128,17 @@ impl AppState {
         let started_at = chrono::Utc::now();
         let scheduled_at = task.next_run_at.unwrap_or(started_at);
         let _ = app.emit(events::TASK_STARTED, task.id);
-        let record = match executor::run_task_once(
+        let task_id = task.id;
+        let task_version = task.updated_at;
+        let cancelled = || {
+            self.scheduler.is_paused()
+                || self.lock_doc().map_or(true, |doc| {
+                    !doc.tasks
+                        .iter()
+                        .any(|t| t.id == task_id && t.enabled && t.updated_at == task_version)
+                })
+        };
+        let record = match executor::run_task_once_cancellable(
             self.automation.as_ref(),
             &mut task,
             &settings,
@@ -142,6 +152,7 @@ impl AppState {
                     .body(message)
                     .show();
             },
+            &cancelled,
         ) {
             Ok(record) => record,
             Err(error) => executor::history_record(
