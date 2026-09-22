@@ -1,4 +1,4 @@
-﻿name: Release
+name: Release
 on:
   push:
     tags: ['v*']
@@ -14,12 +14,12 @@ jobs:
       - name: Verify tag and versions
         shell: python
         run: |
-          import json, os, tomllib
+          import json, os, re
           from pathlib import Path
           version = json.loads(Path('package.json').read_text())['version']
           assert os.environ['GITHUB_REF_NAME'] == 'v' + version, 'Tag/version mismatch'
           assert json.loads(Path('src-tauri/tauri.conf.json').read_text())['version'] == version
-          assert tomllib.loads(Path('src-tauri/Cargo.toml').read_text())['package']['version'] == version
+          assert re.search(r'^version = "([^"]+)"$', Path('src-tauri/Cargo.toml').read_text(), re.M)[1] == version
       - name: Require successful CI for this exact main commit
         id: ci
         env:
