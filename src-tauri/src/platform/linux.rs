@@ -138,13 +138,27 @@ impl PlatformAutomation for LinuxAutomation {
                 let hwnd = id.parse().ok()?;
                 let title = xdo(&["getwindowname", id]).ok()?;
                 let process_id: u32 = xdo(&["getwindowpid", id]).ok()?.parse().ok()?;
-                let path = std::fs::read_link(format!("/proc/{process_id}/exe")).ok()?;
+                // /proc/PID/exe may be unreadable for setgid terminals (xterm)
+                // even though the visible window and PID are valid targets.
+                // Keep that candidate; path-based matching still fails closed
+                // if a task explicitly requires an unavailable executable path.
+                let path = std::fs::read_link(format!("/proc/{process_id}/exe")).ok();
+                let process_name = path
+                    .as_ref()
+                    .and_then(|p| p.file_name())
+                    .map(|name| name.to_string_lossy().into_owned())
+                    .or_else(|| {
+                        std::fs::read_to_string(format!("/proc/{process_id}/comm"))
+                            .ok()
+                            .map(|s| s.trim().to_string())
+                    })
+                    .unwrap_or_default();
                 Some(WindowCandidate {
                     hwnd,
                     title,
                     process_id,
-                    process_name: path.file_name()?.to_string_lossy().into_owned(),
-                    executable_path: Some(path.to_string_lossy().into_owned()),
+                    process_name,
+                    executable_path: path.map(|p| p.to_string_lossy().into_owned()),
                     is_visible: true,
                 })
             })

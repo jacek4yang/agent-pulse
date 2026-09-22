@@ -44,3 +44,11 @@ v0.2.0 reliability audit and Windows/macOS/Linux release, requested 2026-09-22.
 Local gates and native CI are complete. Wait for checkpoint commit CI, then squash merge PR #46 only when green. Wait for green main CI, tag v0.2.0 (Release reuses that exact commit's CI artifacts), and verify five installer types
 plus actual SHA256SUMS after all release builds. Update this checkpoint before merge
 and after release. Do not move a published tag.
+
+## Latest CI finding
+Checkpoint run 35723228506 failed Linux native input with TargetNotFound while the
+xterm window existed. Linux enumeration required readable /proc/PID/exe, which is
+not guaranteed for setgid terminals. Preserve candidates using PID/title and optional
+/proc/PID/comm when image paths are inaccessible; explicit path matching still fails
+closed. Smoke probe now builds before opening its receiver and logs WM/client state.
+Fix CI must pass before merge. No keyboard input was sent by the failed probe.
